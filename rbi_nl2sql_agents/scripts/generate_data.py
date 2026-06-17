@@ -327,18 +327,22 @@ daksh_df = pd.DataFrame(daksh_data)
 os.makedirs("project_data/cms", exist_ok=True)
 os.makedirs("project_data/daksh", exist_ok=True)
 
-# Write to Excel files
+# Write to Excel and CSV files
 cms_file_path = "project_data/cms/cms_cases.xlsx"
+cms_csv_path = "project_data/cms/cms_cases.csv"
 daksh_file_path = "project_data/daksh/daksh_reports.xlsx"
+daksh_csv_path = "project_data/daksh/daksh_reports.csv"
 
 cms_df.to_excel(cms_file_path, index=False)
+cms_df.to_csv(cms_csv_path, index=False)
 daksh_df.to_excel(daksh_file_path, index=False)
+daksh_df.to_csv(daksh_csv_path, index=False)
 
 print(f"Data Generation Successful!")
 print(f"CMS Data shape: {cms_df.shape}")
 print(f"DAKSH Data shape: {daksh_df.shape}")
-print(f"CMS Cases saved to: {cms_file_path}")
-print(f"DAKSH Reports saved to: {daksh_file_path}")
+print(f"CMS Cases saved to: {cms_file_path} and {cms_csv_path}")
+print(f"DAKSH Reports saved to: {daksh_file_path} and {daksh_csv_path}")
 
 # Verification prints
 print("\nCMS Sample Row:")
