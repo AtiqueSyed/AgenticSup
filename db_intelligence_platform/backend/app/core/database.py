@@ -1,0 +1,73 @@
+import oracledb
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from neo4j import AsyncGraphDatabase
+import hazelcast
+from elasticsearch import AsyncElasticsearch
+from app.core.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
+
+# --- Oracle DB (SQLAlchemy) ---
+# Assuming thin client mode for oracledb
+ORACLE_DSN = f"{settings.ORACLE_HOST}:{settings.ORACLE_PORT}/{settings.ORACLE_SERVICE_NAME}"
+# We're using oracledb async support with SQLAlchemy 2.0
+ORACLE_URL = f"oracle+oracledb_async://{settings.ORACLE_USERNAME}:{settings.ORACLE_PASSWORD}@{ORACLE_DSN}"
+
+try:
+    engine = create_async_engine(ORACLE_URL, echo=False)
+    AsyncSessionLocal = sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+except Exception as e:
+    logger.error(f"Failed to initialize Oracle engine: {e}")
+    engine = None
+    AsyncSessionLocal = None
+
+async def get_db():
+    if not AsyncSessionLocal:
+        yield None
+        return
+    async with AsyncSessionLocal() as session:
+        yield session
+
+# --- Neo4j ---
+try:
+    neo4j_driver = AsyncGraphDatabase.driver(
+        settings.NEO4J_URI,
+        auth=(settings.NEO4J_USERNAME, settings.NEO4J_PASSWORD)
+    )
+except Exception as e:
+    logger.error(f"Failed to initialize Neo4j driver: {e}")
+    neo4j_driver = None
+
+# --- Hazelcast ---
+try:
+    hz_client = hazelcast.HazelcastClient(
+        cluster_name=settings.HAZELCAST_CLUSTER_NAME,
+        cluster_members=[f"{settings.HAZELCAST_HOST}:{settings.HAZELCAST_PORT}"]
+    )
+except Exception as e:
+    logger.error(f"Failed to initialize Hazelcast client: {e}")
+    hz_client = None
+
+# --- Elasticsearch ---
+try:
+    es_client = AsyncElasticsearch(
+        settings.ELASTICSEARCH_URL,
+        basic_auth=(settings.ELASTICSEARCH_USERNAME, settings.ELASTICSEARCH_PASSWORD),
+        verify_certs=False # Typically false for hackathon environments unless specified
+    )
+except Exception as e:
+    logger.error(f"Failed to initialize Elasticsearch client: {e}")
+    es_client = None
+
+async def close_connections():
+    """Helper to gracefully close external connections"""
+    if neo4j_driver:
+        await neo4j_driver.close()
+    if es_client:
+        await es_client.close()
+    if hz_client:
+        hz_client.shutdown()
