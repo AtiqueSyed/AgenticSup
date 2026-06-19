@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -11,20 +11,33 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-const initialNodes = [
-  { id: '1', position: { x: 250, y: 5 }, data: { label: 'Customers (Table)' } },
-  { id: '2', position: { x: 100, y: 100 }, data: { label: 'Orders (Table)' } },
-  { id: '3', position: { x: 400, y: 100 }, data: { label: 'Addresses (Table)' } },
-];
-
-const initialEdges = [
-  { id: 'e1-2', source: '1', target: '2', label: '1:N (customer_id)' },
-  { id: 'e1-3', source: '1', target: '3', label: '1:1 (address_id)' },
-];
-
 export default function KnowledgeGraphExplorer() {
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+  useEffect(() => {
+    const fetchGraph = async () => {
+      try {
+        const response = await fetch("http://localhost:8000/api/v1/graph");
+        const data = await response.json();
+        
+        // Simple layout: space out nodes so they aren't all at 0,0
+        const spacedNodes = data.nodes.map((node: any, index: number) => ({
+          ...node,
+          position: { 
+            x: (index % 5) * 200, 
+            y: Math.floor(index / 5) * 100 
+          }
+        }));
+
+        setNodes(spacedNodes);
+        setEdges(data.edges);
+      } catch (err) {
+        console.error("Failed to fetch graph:", err);
+      }
+    };
+    fetchGraph();
+  }, [setNodes, setEdges]);
 
   const onConnect = useCallback(
     (params: Edge | Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -35,7 +48,7 @@ export default function KnowledgeGraphExplorer() {
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       <div className="mb-6">
         <h2 className="text-2xl font-semibold text-slate-900">Knowledge Graph Explorer</h2>
-        <p className="text-slate-500">Visualize entities and relationships mapped by the AI during onboarding.</p>
+        <p className="text-slate-500">Visualize entities and relationships natively sourced from Neo4j.</p>
       </div>
       <div className="flex-1 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
         <ReactFlow

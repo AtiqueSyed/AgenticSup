@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
 export default function DatabaseOnboarding() {
-  const [connectionString, setConnectionString] = useState("")
+  const [connectionString, setConnectionString] = useState("oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1")
   const [dbName, setDbName] = useState("")
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
 

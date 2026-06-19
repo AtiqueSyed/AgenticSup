@@ -127,3 +127,31 @@ async def ask_question(request: QueryRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from app.core.database import neo4j_driver
+
+@router.get("/graph")
+async def get_knowledge_graph():
+    """Returns the Neo4j nodes and edges for the frontend visualization."""
+    if not neo4j_driver:
+        return {"nodes": [], "edges": []}
+        
+    async with neo4j_driver.session() as session:
+        # Fetch all Entities
+        entities_res = await session.run("MATCH (e:Entity) RETURN e.id AS id, e.label AS label")
+        entities = [{"id": record["id"], "label": record["label"]} for record in await entities_res.data()]
+        
+        # Fetch relationships
+        edges_res = await session.run("MATCH (src:Entity)-[r]->(tgt:Entity) RETURN src.id AS source, tgt.id AS target, type(r) AS type")
+        edges = await edges_res.data()
+        
+    return {
+        "nodes": [
+            {"id": e["id"], "type": "default", "data": {"label": e["label"]}, "position": {"x": 0, "y": 0}}
+            for e in entities
+        ],
+        "edges": [
+            {"id": f"{e['source']}-{e['target']}-{e['type']}", "source": e["source"], "target": e["target"], "label": e["type"], "animated": True}
+            for e in edges
+        ]
+    }

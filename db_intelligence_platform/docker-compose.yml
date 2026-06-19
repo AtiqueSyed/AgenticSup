@@ -14,9 +14,9 @@ services:
       context: ./backend
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
       - NEO4J_URI=bolt://neo4j:7687
       - ELASTICSEARCH_URL=https://elasticsearch:9200
       - HAZELCAST_HOST=hazelcast
