@@ -72,7 +72,7 @@ async def execute_sql_node(state: QueryState):
     # For hackathon purposes, we use a default connection if none provided in context
     conn_str = state.get("relevant_context", {}).get("connection_string")
     if not conn_str:
-        conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@localhost:1521/?service_name=XEPDB1"
+        conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1"
     
     try:
         engine = create_async_engine(conn_str)

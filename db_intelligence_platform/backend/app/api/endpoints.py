@@ -79,8 +79,8 @@ async def ask_question(request: QueryRequest):
     if not conn_str and mock_db_connections:
         conn_str = list(mock_db_connections.values())[-1]
     elif not conn_str:
-        # Fallback to local Oracle if memory was wiped by a server restart
-        conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@localhost:1521/?service_name=XEPDB1"
+        # Fallback to local Oracle (using host.docker.internal to reach Windows host from inside Docker container)
+        conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1"
 
     # Hazelcast Chat Session Caching
     chat_history = []

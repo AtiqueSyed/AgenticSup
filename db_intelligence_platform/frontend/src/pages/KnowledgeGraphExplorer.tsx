@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -23,7 +23,7 @@ const initialEdges = [
 ];
 
 export default function KnowledgeGraphExplorer() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   const onConnect = useCallback(
