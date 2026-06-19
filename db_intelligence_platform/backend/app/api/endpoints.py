@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 import uuid
 from typing import Dict, Any
+import json
+from app.core.database import hz_client
 
 from app.agents.admin_onboarding import admin_onboarding_app
 from app.agents.user_query import user_query_app
@@ -18,6 +20,7 @@ class QueryRequest(BaseModel):
 
 # In-memory mock tracking for background tasks during hackathon
 tasks_status = {}
+mock_db_connections = {}
 
 @router.get("/stats")
 async def get_stats():
@@ -34,6 +37,7 @@ async def onboard_database(request: OnboardRequest, background_tasks: Background
     This will introspect the schema, build the Neo4j graph, and generate embeddings.
     """
     db_id = str(uuid.uuid4())
+    mock_db_connections[db_id] = request.connection_string
     
     async def run_onboarding():
         tasks_status[db_id] = "running"
@@ -69,10 +73,31 @@ async def ask_question(request: QueryRequest):
     """
     Executes the User Query workflow: NL -> SQL -> Validate -> Synthesize Answer.
     """
+    # Grab the connection string from memory
+    # Since the UI currently hardcodes "selected-db-id", we will just use the last onboarded db!
+    conn_str = mock_db_connections.get(request.database_id)
+    if not conn_str and mock_db_connections:
+        conn_str = list(mock_db_connections.values())[-1]
+    elif not conn_str:
+        # Fallback to local Oracle if memory was wiped by a server restart
+        conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@localhost:1521/?service_name=XEPDB1"
+
+    # Hazelcast Chat Session Caching
+    chat_history = []
+    session_id = f"chat_{request.database_id}"
+    if hz_client:
+        try:
+            chat_map = hz_client.get_map("chat_sessions").blocking()
+            history_str = chat_map.get(session_id)
+            if history_str:
+                chat_history = json.loads(history_str)
+        except Exception as e:
+            print(f"Hazelcast Read Error: {e}")
+        
     initial_state = {
         "question": request.question,
         "database_id": request.database_id,
-        "relevant_context": {},
+        "relevant_context": {"connection_string": conn_str, "chat_history": chat_history},
         "generated_sql": None,
         "query_results": None,
         "validation_error": None,
@@ -82,11 +107,22 @@ async def ask_question(request: QueryRequest):
     }
     
     try:
+        # We await the workflow invocation
         final_state = await user_query_app.ainvoke(initial_state)
+        
+        # Cache the new history back to Hazelcast
+        if hz_client:
+            try:
+                chat_map = hz_client.get_map("chat_sessions").blocking()
+                chat_history.append({"q": request.question, "a": final_state.get("synthesized_answer", "")})
+                chat_map.put(session_id, json.dumps(chat_history))
+            except Exception as e:
+                print(f"Hazelcast Write Error: {e}")
+
         return {
-            "sql": final_state.get("generated_sql"),
-            "answer": final_state.get("synthesized_answer"),
-            "chart": final_state.get("recommended_visualizations"),
+            "answer": final_state.get("synthesized_answer", "Error synthesizing answer"),
+            "sql_used": final_state.get("generated_sql"),
+            "visualizations": final_state.get("recommended_visualizations"),
             "results": final_state.get("query_results")
         }
     except Exception as e:

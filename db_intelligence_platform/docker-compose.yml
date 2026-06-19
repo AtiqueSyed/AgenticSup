@@ -1,22 +1,50 @@
 version: "3.8"
 
 services:
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
-    env_file:
-      - ./backend/.env
-    restart: always
-
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
     ports:
-      - "80:80"
-    restart: always
+      - "5174:80"
     depends_on:
       - backend
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - NEO4J_URI=bolt://neo4j:7687
+      - ELASTICSEARCH_URL=https://elasticsearch:9200
+      - HAZELCAST_HOST=hazelcast
+    depends_on:
+      - neo4j
+      - elasticsearch
+      - hazelcast
+
+  neo4j:
+    image: neo4j:5.12.0
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/password
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
+    environment:
+      - discovery.type=single-node
+      - ELASTIC_PASSWORD=oZ1npMQ5_TYwAxi2LfEe
+      - xpack.security.enabled=true
+    ports:
+      - "9200:9200"
+
+  hazelcast:
+    image: hazelcast/hazelcast:5.3.2
+    ports:
+      - "5701:5701"
+    environment:
+      - HZ_CLUSTERNAME=devbackend

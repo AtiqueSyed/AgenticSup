@@ -46,7 +46,8 @@ except Exception as e:
 try:
     hz_client = hazelcast.HazelcastClient(
         cluster_name=settings.HAZELCAST_CLUSTER_NAME,
-        cluster_members=[f"{settings.HAZELCAST_HOST}:{settings.HAZELCAST_PORT}"]
+        cluster_members=[f"{settings.HAZELCAST_HOST}:{settings.HAZELCAST_PORT}"],
+        cluster_connect_timeout=2.0
     )
 except Exception as e:
     logger.error(f"Failed to initialize Hazelcast client: {e}")
