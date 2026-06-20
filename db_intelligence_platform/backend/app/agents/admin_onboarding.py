@@ -191,20 +191,38 @@ async def construct_knowledge_graph_node(state: OnboardingState):
     if neo4j_driver and entities:
         print(f"Connecting to Neo4j and merging {len(entities)} Entities...")
         async with neo4j_driver.session() as session:
-            # Create Entities
+            # Create Database Node
+            db_id = state.get("database_id", "unknown")
+            conn_str = state.get("connection_string", "unknown")
+            await session.run("MERGE (db:Database {id: $id}) SET db.connection_string = $conn_str", id=db_id, conn_str=conn_str)
+            
+            # Create Entities and Link to Database
             for ent in entities:
                 ent_id = ent.get("id")
-                await session.run("MERGE (e:Entity {id: $id}) SET e.label = $label", id=ent_id, label=ent.get("label", ent_id))
+                await session.run(
+                    "MERGE (e:Entity {id: $id}) "
+                    "SET e.label = $label "
+                    "WITH e "
+                    "MATCH (db:Database {id: $db_id}) "
+                    "MERGE (db)-[:CONTAINS]->(e)",
+                    id=ent_id, label=ent.get("label", ent_id), db_id=db_id
+                )
             
             # Create Relationships
             print(f"Merging {len(relationships)} Relationships into Neo4j...")
-            for rel in relationships:
-                await session.run(
-                    "MATCH (src:Entity {id: $source}) "
-                    "MATCH (tgt:Entity {id: $target}) "
-                    f"MERGE (src)-[:{rel.get('type', 'RELATES_TO')}]->(tgt)",
-                    source=rel.get("source"), target=rel.get("target")
-                )
+            try:
+                for rel in relationships:
+                    rel_type = rel.get('type', 'RELATES_TO')
+                    # Sanitize rel_type (remove backticks to prevent injection)
+                    rel_type_safe = str(rel_type).replace("`", "")
+                    await session.run(
+                        "MATCH (src:Entity {id: $source}) "
+                        "MATCH (tgt:Entity {id: $target}) "
+                        "MERGE (src)-[:`{rel_type}`]->(tgt)".format(rel_type=rel_type_safe),
+                        source=rel.get("source"), target=rel.get("target")
+                    )
+            except Exception as e:
+                print(f"[ERROR] Failed to merge relationships: {e}")
                 
     print("Success! Neo4j Knowledge Graph constructed.")
     return {"status": "constructed_kg"}
@@ -214,12 +232,17 @@ from app.core.database import es_client
 async def generate_embeddings_node(state: OnboardingState):
     """Generates embeddings for schema items and pushes to Elasticsearch deterministically."""
     extracted_tables = state.get("extracted_schema", {}).get("tables", [])
+    db_id = state.get("database_id", "unknown")
     if es_client and extracted_tables:
         try:
             for t in extracted_tables:
                 await es_client.index(
                     index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
-                    document={"table_name": t["name"], "description": state.get("semantic_descriptions", {}).get(t["name"], "")}
+                    document={
+                        "database_id": db_id,
+                        "table_name": t["name"], 
+                        "description": state.get("semantic_descriptions", {}).get(t["name"], "")
+                    }
                 )
         except Exception as e:
             print(f"ES indexing error: {e}")

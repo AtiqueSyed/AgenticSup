@@ -59,14 +59,38 @@ async def get_stats():
         "queries_today": 0
     }
 
+import hashlib
+from app.core.database import neo4j_driver, es_client
+from app.core.config import settings
+
 @router.post("/onboard")
 async def onboard_database(request: OnboardRequest, background_tasks: BackgroundTasks):
     """
     Kicks off the offline Admin Onboarding workflow using LangGraph.
     This will introspect the schema, build the Neo4j graph, and generate embeddings.
     """
-    db_id = str(uuid.uuid4())
+    # Deterministic ID to prevent duplicate DB onboardings
+    db_id = hashlib.md5(request.connection_string.encode()).hexdigest()
     mock_db_connections[db_id] = request.connection_string
+    
+    # Proactively wipe previous footprint to prevent entity duplication
+    if neo4j_driver:
+        try:
+            async with neo4j_driver.session() as session:
+                # Delete Database node and all entities uniquely tied to it
+                await session.run("MATCH (db:Database {id: $db_id})-[:CONTAINS]->(e:Entity) DETACH DELETE db, e", db_id=db_id)
+        except Exception as e:
+            print(f"Cleanup Neo4j Error: {e}")
+            
+    if es_client:
+        try:
+            await es_client.delete_by_query(
+                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                query={"match": {"database_id": db_id}},
+                ignore_unavailable=True
+            )
+        except Exception as e:
+            print(f"Cleanup ES Error: {e}")
     
     async def run_onboarding():
         tasks_status[db_id] = "running"
@@ -91,6 +115,75 @@ async def onboard_database(request: OnboardRequest, background_tasks: Background
     background_tasks.add_task(run_onboarding)
     
     return {"message": "Onboarding started", "database_id": db_id}
+
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+
+@router.delete("/onboard/{database_id}")
+async def delete_database(database_id: str):
+    """Removes a database and its trace from the Knowledge Graph"""
+    if neo4j_driver:
+        try:
+            async with neo4j_driver.session() as session:
+                await session.run("MATCH (db:Database {id: $db_id})-[:CONTAINS]->(e:Entity) DETACH DELETE db, e", db_id=database_id)
+        except Exception:
+            pass
+            
+    if es_client:
+        try:
+            await es_client.delete_by_query(
+                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                query={"match": {"database_id": database_id}},
+                ignore_unavailable=True
+            )
+        except Exception:
+            pass
+            
+    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
+    try:
+        engine = create_async_engine(dev_db_str)
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM onboarded_databases WHERE db_id = :db_id"), {"db_id": database_id})
+        await engine.dispose()
+    except Exception:
+        pass
+        
+    tasks_status.pop(database_id, None)
+    mock_db_connections.pop(database_id, None)
+    return {"status": "deleted", "database_id": database_id}
+
+@router.delete("/graph/clear")
+async def clear_knowledge_graph():
+    """Nuclear option to drop all entities and databases from Neo4j and ES"""
+    if neo4j_driver:
+        try:
+            async with neo4j_driver.session() as session:
+                await session.run("MATCH (n) DETACH DELETE n")
+        except Exception:
+            pass
+            
+    if es_client:
+        try:
+            await es_client.delete_by_query(
+                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                query={"match_all": {}},
+                ignore_unavailable=True
+            )
+        except Exception:
+            pass
+            
+    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
+    try:
+        engine = create_async_engine(dev_db_str)
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM onboarded_databases"))
+        await engine.dispose()
+    except Exception:
+        pass
+        
+    tasks_status.clear()
+    mock_db_connections.clear()
+    return {"status": "graph cleared"}
 
 @router.get("/onboard/{database_id}/status")
 async def get_onboarding_status(database_id: str):
