@@ -259,21 +259,26 @@ async def get_knowledge_graph():
         return {"nodes": [], "edges": []}
         
     async with neo4j_driver.session() as session:
-        # Fetch all Entities
-        entities_res = await session.run("MATCH (e:Entity) RETURN e.id AS id, e.label AS label")
-        entities = [{"id": record["id"], "label": record["label"]} for record in await entities_res.data()]
+        # Fetch all Entities and Databases
+        nodes_res = await session.run("MATCH (n) WHERE n:Entity OR n:Database RETURN n.id AS id, coalesce(n.label, n.name, n.id) AS label, labels(n)[0] AS type")
+        raw_nodes = await nodes_res.data()
         
-        # Fetch relationships
-        edges_res = await session.run("MATCH (src:Entity)-[r]->(tgt:Entity) RETURN src.id AS source, tgt.id AS target, type(r) AS type")
+        # Fetch all relationships
+        edges_res = await session.run("MATCH (src)-[r]->(tgt) RETURN src.id AS source, tgt.id AS target, type(r) AS type")
         edges = await edges_res.data()
         
     return {
         "nodes": [
-            {"id": e["id"], "type": "default", "data": {"label": e["label"]}, "position": {"x": 0, "y": 0}}
-            for e in entities
+            {
+                "id": n["id"], 
+                "type": "input" if n["type"] == "Database" else "default", 
+                "data": {"label": f"{n['type']}:\n{n['label']}" if n["type"] == "Database" else n["label"]}, 
+                "position": {"x": 0, "y": 0}
+            }
+            for n in raw_nodes if n.get("id")
         ],
         "edges": [
-            {"id": f"{e['source']}-{e['target']}-{e['type']}", "source": e["source"], "target": e["target"], "label": e["type"], "animated": True}
-            for e in edges
+            {"id": f"{e['source']}-{e['target']}-{e['type']}", "source": e["source"], "target": e["target"], "label": e["type"], "animated": e["type"] != "CONTAINS"}
+            for e in edges if e.get("source") and e.get("target")
         ]
     }

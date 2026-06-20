@@ -216,10 +216,13 @@ async def construct_knowledge_graph_node(state: OnboardingState):
                     # Sanitize rel_type (remove backticks to prevent injection)
                     rel_type_safe = str(rel_type).replace("`", "")
                     await session.run(
-                        "MATCH (src:Entity {id: $source}) "
-                        "MATCH (tgt:Entity {id: $target}) "
+                        "MERGE (src:Entity {id: $source}) "
+                        "ON CREATE SET src.label = $source "
+                        "MERGE (tgt:Entity {id: $target}) "
+                        "ON CREATE SET tgt.label = $target "
                         "MERGE (src)-[:`{rel_type}`]->(tgt)".format(rel_type=rel_type_safe),
-                        source=rel.get("source"), target=rel.get("target")
+                        source=str(rel.get("source", "unknown")).strip(), 
+                        target=str(rel.get("target", "unknown")).strip()
                     )
             except Exception as e:
                 print(f"[ERROR] Failed to merge relationships: {e}")
