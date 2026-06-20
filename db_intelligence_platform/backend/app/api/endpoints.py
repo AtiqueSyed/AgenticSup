@@ -22,11 +22,40 @@ class QueryRequest(BaseModel):
 tasks_status = {}
 mock_db_connections = {}
 
+from app.core.database import neo4j_driver
+
 @router.get("/stats")
 async def get_stats():
+    entities_count = 0
+    if neo4j_driver:
+        try:
+            async with neo4j_driver.session() as session:
+                res = await session.run("MATCH (n:Entity) RETURN count(n) AS c")
+                record = await res.single()
+                if record:
+                    entities_count = record["c"]
+        except Exception:
+            pass
+            
+    db_count = 0
+    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
+    try:
+        from sqlalchemy.ext.asyncio import create_async_engine
+        from sqlalchemy import text
+        engine = create_async_engine(dev_db_str)
+        async with engine.connect() as conn:
+            res = await conn.execute(text("SELECT COUNT(*) FROM onboarded_databases"))
+            row = res.fetchone()
+            if row:
+                db_count = row[0]
+        await engine.dispose()
+    except Exception:
+        # Fallback to memory if DB query fails or table isn't created yet
+        db_count = len(tasks_status)
+            
     return {
-        "total_databases": len(tasks_status),
-        "entities_identified": len(tasks_status) * 7, # Mock entities per DB
+        "total_databases": db_count,
+        "entities_identified": entities_count,
         "queries_today": 0
     }
 

@@ -29,14 +29,38 @@ async def extract_schema_node(state: OnboardingState):
         def get_schema(conn):
             inspector = inspect(conn)
             tables_data = []
-            for table_name in inspector.get_table_names():
-                columns = [{"name": c["name"], "type": str(c["type"])} for c in inspector.get_columns(table_name)]
-                foreign_keys = inspector.get_foreign_keys(table_name)
-                tables_data.append({
-                    "name": table_name,
-                    "columns": columns,
-                    "foreign_keys": foreign_keys
-                })
+            
+            # Identify all non-system schemas
+            schemas_to_check = [None]
+            exclude_schemas = {'SYS', 'SYSTEM', 'XDB', 'CTXSYS', 'MDSYS', 'DBSNMP', 'OUTLN', 'APPQOSSYS', 'DVSYS', 'DVF', 'AUDSYS', 'OJVMSYS', 'GSMADMIN_INTERNAL', 'ORDSYS', 'OLAPSYS', 'WMSYS', 'SYSRAC', 'SYSKM', 'SYSDG', 'SYSBACKUP', 'SYS$UMF', 'REMOTE_SCHEDULER_AGENT', 'DIP', 'GSMCATUSER', 'GSMUSER', 'XS$NULL', 'ANONYMOUS', 'FLOWS_FILES', 'HR', 'OE', 'PM', 'SH', 'IX', 'BI'}
+            
+            try:
+                all_schemas = inspector.get_schema_names()
+                print(f"[DEBUG] Found {len(all_schemas)} total schemas in database.")
+                for s in all_schemas:
+                    if s.upper() not in exclude_schemas and not s.upper().startswith('APEX'):
+                        schemas_to_check.append(s)
+                print(f"[DEBUG] Will scan the following schemas for tables: {schemas_to_check}")
+            except Exception as e:
+                print(f"[ERROR] Could not list all schemas: {e}")
+                
+            seen_tables = set()
+            for schema in set(schemas_to_check):
+                try:
+                    tables_in_schema = inspector.get_table_names(schema=schema)
+                    print(f"[DEBUG] Schema '{schema}' has {len(tables_in_schema)} tables.")
+                    for table_name in tables_in_schema:
+                        if table_name in seen_tables: continue
+                        seen_tables.add(table_name)
+                        columns = [{"name": c["name"], "type": str(c["type"])} for c in inspector.get_columns(table_name, schema=schema)]
+                        foreign_keys = inspector.get_foreign_keys(table_name, schema=schema)
+                        tables_data.append({
+                            "name": table_name,
+                            "columns": columns,
+                            "foreign_keys": foreign_keys
+                        })
+                except Exception as e:
+                    print(f"Skipping tables in schema {schema}: {e}")
             return tables_data
         
         async with engine.connect() as conn:
@@ -89,7 +113,7 @@ async def generate_semantics_node(state: OnboardingState):
     try:
         print("Calling AWS Bedrock LLM to generate table descriptions...")
         response = await client.chat.completions.create(
-            model="openai.gpt-oss-20b",
+            model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -135,7 +159,7 @@ async def identify_entities_node(state: OnboardingState):
     try:
         print("Calling AWS Bedrock LLM to identify abstract Entities and Relationships...")
         response = await client.chat.completions.create(
-            model="openai.gpt-oss-20b",
+            model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -201,8 +225,43 @@ async def generate_embeddings_node(state: OnboardingState):
             print(f"ES indexing error: {e}")
     return {"status": "generated_embeddings"}
 
-def register_metadata_node(state: OnboardingState):
+from sqlalchemy import text
+
+async def register_metadata_node(state: OnboardingState):
     """Saves all gathered metadata into the centralized registry (Oracle DB)."""
+    print("----- [NODE: register_metadata] Started -----")
+    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
+    try:
+        engine = create_async_engine(dev_db_str)
+        async with engine.begin() as conn:
+            # Create table if it doesn't exist (Catching ORA-00955: name is already used by an existing object)
+            await conn.execute(text("""
+                BEGIN
+                   EXECUTE IMMEDIATE 'CREATE TABLE onboarded_databases (
+                       db_id VARCHAR2(255) PRIMARY KEY,
+                       connection_string VARCHAR2(1000),
+                       status VARCHAR2(50)
+                   )';
+                EXCEPTION
+                   WHEN OTHERS THEN
+                      IF SQLCODE != -955 THEN
+                         RAISE;
+                      END IF;
+                END;
+            """))
+            # Insert the newly onboarded DB
+            await conn.execute(text("""
+                MERGE INTO onboarded_databases tgt
+                USING (SELECT :db_id AS db_id, :conn_str AS connection_string, :status AS status FROM dual) src
+                ON (tgt.db_id = src.db_id)
+                WHEN MATCHED THEN UPDATE SET tgt.connection_string = src.connection_string, tgt.status = src.status
+                WHEN NOT MATCHED THEN INSERT (db_id, connection_string, status) VALUES (src.db_id, src.connection_string, src.status)
+            """), {"db_id": state.get("database_id", "unknown"), "conn_str": state.get("connection_string", ""), "status": "completed"})
+        await engine.dispose()
+        print("Success! Metadata registered to Developer Oracle database.")
+    except Exception as e:
+        print(f"[ERROR] Failed to register metadata: {e}")
+        
     return {"status": "completed"}
 
 # Define the graph

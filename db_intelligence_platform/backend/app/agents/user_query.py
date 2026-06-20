@@ -48,7 +48,7 @@ async def generate_sql_node(state: QueryState):
     
     try:
         response = await client.chat.completions.create(
-            model="openai.gpt-oss-20b",
+            model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
         )
         sql = response.choices[0].message.content.strip()
@@ -114,7 +114,7 @@ async def synthesize_answer_node(state: QueryState):
     
     try:
         response = await client.chat.completions.create(
-            model="openai.gpt-oss-20b",
+            model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
         )
         answer = response.choices[0].message.content.strip()
