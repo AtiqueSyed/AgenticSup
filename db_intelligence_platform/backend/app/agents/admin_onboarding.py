@@ -4,6 +4,7 @@ from langgraph.graph import StateGraph, START, END
 
 class OnboardingState(TypedDict):
     database_id: str
+    database_name: str
     connection_string: str
     extracted_schema: Dict[str, Any]
     semantic_descriptions: Dict[str, str]
@@ -194,7 +195,8 @@ async def construct_knowledge_graph_node(state: OnboardingState):
             # Create Database Node
             db_id = state.get("database_id", "unknown")
             conn_str = state.get("connection_string", "unknown")
-            await session.run("MERGE (db:Database {id: $id}) SET db.connection_string = $conn_str", id=db_id, conn_str=conn_str)
+            db_name = state.get("database_name", db_id)
+            await session.run("MERGE (db:Database {id: $id}) SET db.connection_string = $conn_str, db.name = $db_name", id=db_id, conn_str=conn_str, db_name=db_name)
             
             # Create Entities and Link to Database
             for ent in entities:
@@ -269,6 +271,7 @@ async def register_metadata_node(state: OnboardingState):
                 BEGIN
                    EXECUTE IMMEDIATE 'CREATE TABLE onboarded_databases (
                        db_id VARCHAR2(255) PRIMARY KEY,
+                       database_name VARCHAR2(255),
                        connection_string VARCHAR2(1000),
                        status VARCHAR2(50)
                    )';
@@ -282,11 +285,11 @@ async def register_metadata_node(state: OnboardingState):
             # Insert the newly onboarded DB
             await conn.execute(text("""
                 MERGE INTO onboarded_databases tgt
-                USING (SELECT :db_id AS db_id, :conn_str AS connection_string, :status AS status FROM dual) src
+                USING (SELECT :db_id AS db_id, :db_name AS database_name, :conn_str AS connection_string, :status AS status FROM dual) src
                 ON (tgt.db_id = src.db_id)
-                WHEN MATCHED THEN UPDATE SET tgt.connection_string = src.connection_string, tgt.status = src.status
-                WHEN NOT MATCHED THEN INSERT (db_id, connection_string, status) VALUES (src.db_id, src.connection_string, src.status)
-            """), {"db_id": state.get("database_id", "unknown"), "conn_str": state.get("connection_string", ""), "status": "completed"})
+                WHEN MATCHED THEN UPDATE SET tgt.status = src.status, tgt.database_name = src.database_name, tgt.connection_string = src.connection_string
+                WHEN NOT MATCHED THEN INSERT (db_id, database_name, connection_string, status) VALUES (src.db_id, src.database_name, src.connection_string, src.status)
+            """), {"db_id": state.get("database_id"), "db_name": state.get("database_name", "unknown"), "conn_str": state.get("connection_string"), "status": "COMPLETED"})
         await engine.dispose()
         print("Success! Metadata registered to Developer Oracle database.")
     except Exception as e:

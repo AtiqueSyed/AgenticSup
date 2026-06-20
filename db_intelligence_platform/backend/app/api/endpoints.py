@@ -38,16 +38,18 @@ async def get_stats():
             pass
             
     db_count = 0
+    db_names = []
     dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
     try:
         from sqlalchemy.ext.asyncio import create_async_engine
         from sqlalchemy import text
         engine = create_async_engine(dev_db_str)
         async with engine.connect() as conn:
-            res = await conn.execute(text("SELECT COUNT(*) FROM onboarded_databases"))
-            row = res.fetchone()
-            if row:
-                db_count = row[0]
+            res = await conn.execute(text("SELECT database_name FROM onboarded_databases"))
+            rows = res.fetchall()
+            if rows:
+                db_names = [r[0] for r in rows if r[0]]
+                db_count = len(db_names)
         await engine.dispose()
     except Exception:
         # Fallback to memory if DB query fails or table isn't created yet
@@ -55,6 +57,7 @@ async def get_stats():
             
     return {
         "total_databases": db_count,
+        "database_names": db_names,
         "entities_identified": entities_count,
         "queries_today": 0
     }
@@ -98,6 +101,7 @@ async def onboard_database(request: OnboardRequest, background_tasks: Background
             # We would invoke the graph here
             initial_state = {
                 "database_id": db_id,
+                "database_name": request.database_name,
                 "connection_string": request.connection_string,
                 "extracted_schema": {},
                 "semantic_descriptions": {},
