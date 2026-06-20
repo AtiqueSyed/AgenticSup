@@ -146,10 +146,11 @@ async def identify_entities_node(state: OnboardingState):
     ])
     
     prompt = f"""
-    Analyze this database schema and identify the core business Entities (nodes) and Relationships (edges) to construct a Knowledge Graph.
+    Analyze this database schema and identify the core abstract business Entities (nodes) and Relationships (edges) to construct a Knowledge Graph.
+    For each Entity, provide a rich semantic 'description' (this will be vectorized for semantic search) and an array of 'mapped_tables' that physical represent this entity in the database.
     Return ONLY a valid JSON object in this exact format:
     {{
-      "entities": [ {{"id": "Customer", "label": "Customer Entity"}}, ... ],
+      "entities": [ {{"id": "Customer", "label": "Customer Entity", "description": "Represents a human or business that purchases products...", "mapped_tables": ["CUSTOMERS", "USERS"]}}, ... ],
       "relationships": [ {{"source": "Customer", "target": "Order", "type": "PLACES"}}, ... ]
     }}
     
@@ -209,6 +210,40 @@ async def construct_knowledge_graph_node(state: OnboardingState):
                     "MERGE (db)-[:CONTAINS]->(e)",
                     id=ent_id, label=ent.get("label", ent_id), db_id=db_id
                 )
+                
+                # Push tables mapping to this entity
+                mapped_tables = ent.get("mapped_tables", [])
+                
+                # Fetch schema dictionaries
+                extracted_tables = state.get("extracted_schema", {}).get("tables", [])
+                table_schema_dict = {t["name"].upper(): t["columns"] for t in extracted_tables}
+                
+                for table_name in mapped_tables:
+                    await session.run(
+                        "MERGE (t:Table {id: $t_id}) "
+                        "SET t.name = $t_name "
+                        "WITH t "
+                        "MATCH (db:Database {id: $db_id}) "
+                        "MERGE (db)-[:HAS_TABLE]->(t) "
+                        "WITH t "
+                        "MATCH (e:Entity {id: $e_id}) "
+                        "MERGE (t)-[:MAPS_TO]->(e)",
+                        t_id=f"{db_id}_{table_name}", t_name=table_name, db_id=db_id, e_id=ent_id
+                    )
+                    
+                    # Push physical columns
+                    columns = table_schema_dict.get(table_name.upper(), [])
+                    for col in columns:
+                        col_name = col["name"]
+                        col_type = col.get("type", "unknown")
+                        await session.run(
+                            "MERGE (c:Column {id: $c_id}) "
+                            "SET c.name = $c_name, c.type = $c_type "
+                            "WITH c "
+                            "MATCH (t:Table {id: $t_id}) "
+                            "MERGE (t)-[:HAS_COLUMN]->(c)",
+                            c_id=f"{db_id}_{table_name}_{col_name}", c_name=col_name, c_type=col_type, t_id=f"{db_id}_{table_name}"
+                        )
             
             # Create Relationships
             print(f"Merging {len(relationships)} Relationships into Neo4j...")
@@ -239,19 +274,19 @@ async def construct_knowledge_graph_node(state: OnboardingState):
 from app.core.database import es_client
 
 async def generate_embeddings_node(state: OnboardingState):
-    """Generates embeddings for schema items and pushes to Elasticsearch deterministically."""
+    """Generates embeddings for abstract entities and pushes to Elasticsearch deterministically."""
     from app.core.config import settings
     from fastembed import TextEmbedding
     
-    extracted_tables = state.get("extracted_schema", {}).get("tables", [])
+    entities = state.get("entities", [])
     db_id = state.get("database_id", "unknown")
-    if es_client and extracted_tables:
+    if es_client and entities:
         print("----- [NODE: generate_embeddings] Started -----")
         try:
             # Initialize fast, local open-source embedding model
             embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5") # Using bge-small as it is explicitly supported by fastembed and extremely fast
             
-            index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables"
+            index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}entities"
             
             # Create index with vector mapping if it doesn't exist
             exists = await es_client.indices.exists(index=index_name)
@@ -260,7 +295,7 @@ async def generate_embeddings_node(state: OnboardingState):
                     "mappings": {
                         "properties": {
                             "database_id": {"type": "keyword"},
-                            "table_name": {"type": "keyword"},
+                            "entity_id": {"type": "keyword"},
                             "description": {"type": "text"},
                             "embedding": {
                                 "type": "dense_vector",
@@ -273,30 +308,30 @@ async def generate_embeddings_node(state: OnboardingState):
                 }
                 await es_client.indices.create(index=index_name, body=mapping)
             
-            for t in extracted_tables:
-                desc = state.get("semantic_descriptions", {}).get(t["name"], "")
-                text_to_embed = f"Table: {t['name']}. Description: {desc}"
+            for ent in entities:
+                text_to_embed = ent.get('id')
+                desc = ent.get("description", ent.get("label", ""))
                 
                 # Generate embedding
                 try:
                     # FastEmbed returns a generator of numpy arrays, we extract the first one and convert to list
                     embedding = list(list(embedding_model.embed([text_to_embed]))[0])
                 except Exception as embed_err:
-                    print(f"Embedding generation failed: {embed_err}")
+                    print(f"Embedding generation failed for '{text_to_embed}': {embed_err}")
                     embedding = [0.001] * 384
                 
-                doc_id = f"{db_id}_{t['name']}"
+                doc_id = f"{db_id}_{ent.get('id')}"
                 await es_client.index(
                     index=index_name,
                     id=doc_id,
                     document={
                         "database_id": db_id,
-                        "table_name": t["name"], 
+                        "entity_id": ent.get("id"), 
                         "description": desc,
                         "embedding": embedding
                     }
                 )
-            print("Successfully generated and indexed vector embeddings in Elasticsearch using FastEmbed.")
+            print("Successfully generated and indexed abstract entity vector embeddings in Elasticsearch using FastEmbed.")
         except Exception as e:
             print(f"ES indexing error: {e}")
     return {"status": "generated_embeddings"}

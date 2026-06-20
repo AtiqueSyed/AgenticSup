@@ -14,8 +14,10 @@ class OnboardRequest(BaseModel):
     connection_string: str
     database_name: str
 
+from typing import Optional
+
 class QueryRequest(BaseModel):
-    database_id: str
+    database_id: Optional[str] = None
     question: str
 
 # In-memory mock tracking for background tasks during hackathon
@@ -230,28 +232,17 @@ async def ask_question(request: QueryRequest):
     """
     Executes the User Query workflow: NL -> SQL -> Validate -> Synthesize Answer.
     """
-    # Grab the connection string from memory
-    # Since the UI currently hardcodes "selected-db-id", we will just use the last onboarded db!
-    conn_str = mock_db_connections.get(request.database_id)
-    if not conn_str and mock_db_connections:
-        conn_str = list(mock_db_connections.values())[-1]
-        
-    if not conn_str:
-        # Fetch dynamically from the file registry so it survives backend container restarts
-        registry = read_registry()
-        if request.database_id == "selected-db-id":
-            if registry:
-                conn_str = list(registry.values())[-1].get("connection_string")
-        else:
+    # Grab the connection string from memory if database_id is provided
+    conn_str = None
+    if request.database_id and request.database_id != "selected-db-id":
+        conn_str = mock_db_connections.get(request.database_id)
+        if not conn_str:
+            registry = read_registry()
             conn_str = registry.get(request.database_id, {}).get("connection_string")
-
-    if not conn_str:
-        # Final fallback
-        conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1"
 
     # Hazelcast Chat Session Caching
     chat_history = []
-    session_id = f"chat_{request.database_id}"
+    session_id = f"chat_{request.database_id}" if request.database_id else f"chat_global"
     if hz_client:
         try:
             chat_map = hz_client.get_map("chat_sessions").blocking()
@@ -264,7 +255,7 @@ async def ask_question(request: QueryRequest):
     initial_state = {
         "question": request.question,
         "database_id": request.database_id,
-        "relevant_context": {"connection_string": conn_str, "chat_history": chat_history},
+        "relevant_context": {"connection_string": conn_str, "chat_history": chat_history} if conn_str else {"chat_history": chat_history},
         "generated_sql": None,
         "query_results": None,
         "validation_error": None,
@@ -287,12 +278,16 @@ async def ask_question(request: QueryRequest):
                 print(f"Hazelcast Write Error: {e}")
 
         return {
+            "database_id": final_state.get("database_id"),
             "answer": final_state.get("synthesized_answer", "Error synthesizing answer"),
             "sql_used": final_state.get("generated_sql"),
             "visualizations": final_state.get("recommended_visualizations"),
             "results": final_state.get("query_results")
         }
     except Exception as e:
+        import traceback
+        print("----- EXCEPTION IN QUERY ENDPOINT -----")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 from app.core.database import neo4j_driver

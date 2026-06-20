@@ -32,55 +32,72 @@ async def retrieve_context_node(state: QueryState):
     context["relationships"] = []
     
     try:
+        print("[DEBUG] Initializing embedding model...")
         # Initialize fast, local open-source embedding model
         embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
         
         # 1. Embed Question
         try:
+            print("[DEBUG] Embedding question...")
             query_vector = list(list(embedding_model.embed([question]))[0])
             knn_query = {
                 "field": "embedding",
                 "query_vector": query_vector,
-                "k": 5,
+                "k": 1,
                 "num_candidates": 50
             }
-            if db_id:
-                knn_query["filter"] = {"term": {"database_id": db_id}}
+            # Remove db_id filter for global routing
             search_body = {"knn": knn_query}
         except Exception as embed_err:
             print(f"Embedding generation failed: {embed_err}")
             return {"relevant_context": context}
         
-        # 2. Search in ES
-        index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables"
-        if es_client and await es_client.indices.exists(index=index_name):
-            print(f"[DEBUG] Searching ES with body: {search_body}")
-            es_results = await es_client.search(index=index_name, body=search_body)
-            print(f"[DEBUG] ES raw response hits: {len(es_results.get('hits', {}).get('hits', []))}")
-            
-            top_tables = []
-            for hit in es_results["hits"]["hits"]:
-                source = hit["_source"]
-                top_tables.append(source["table_name"])
-                context["tables"].append({
-                    "name": source["table_name"],
-                    "description": source.get("description", "")
-                })
+        # 2. Search in ES (Entities Index)
+        index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}entities"
+        if es_client:
+            exists = await es_client.indices.exists(index=index_name)
+            print(f"[DEBUG] ES Entities Index exists: {exists}")
+            if exists:
+                es_results = await es_client.search(index=index_name, body=search_body)
                 
-            # 3. Query Neo4j for related entities to supplement context
-            if neo4j_driver and top_tables:
+                matched_entities = []
+                
+                # Enforce strict top 1 match
+                hits = es_results.get("hits", {}).get("hits", [])[:1]
+                print(f"[DEBUG] ES raw response hits (restricted to 1): {len(hits)}")
+                for hit in hits:
+                    source = hit["_source"]
+                    if source.get("entity_id") not in matched_entities:
+                        matched_entities.append(source.get("entity_id"))
+                
+                print(f"[DEBUG] Matched Entities from ES: {matched_entities}")
+                
+            # 3. Query Neo4j to find which Database and Tables map to these Entities
+            if neo4j_driver and matched_entities:
                 async with neo4j_driver.session() as session:
                     cypher = """
-                    MATCH (e1:Entity)-[r]->(e2:Entity)
-                    WHERE e1.id IN $tables OR e2.id IN $tables
-                    RETURN e1.id AS source, type(r) AS rel, e2.id AS target
+                    MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
+                    WHERE e.id IN $matched_entities
+                    OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                    WITH db, e, t, collect({name: c.name, type: c.type}) AS columns
+                    ORDER BY size(columns) DESC
+                    WITH db, e, collect({name: t.name, columns: columns})[0..2] AS top_tables_for_db
+                    RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, top_tables_for_db AS tables
                     """
-                    neo_res = await session.run(cypher, tables=top_tables)
-                    rels = await neo_res.data()
-                    context["relationships"] = rels
-                    print(f"[DEBUG] Retrieved {len(rels)} relationships from Neo4j Knowledge Graph.")
+                    neo_res = await session.run(cypher, matched_entities=matched_entities)
+                    records = await neo_res.data()
                     
-        print(f"[DEBUG] Context successfully assembled. Tables: {[t['name'] for t in context['tables']]}")
+                    if records:
+                        context["available_databases"] = records
+                        context["relationships"] = [{"source": "Entity", "target": "Table", "type": "MAPS_TO"}]
+                        
+                        import json
+                        print(f"[DEBUG] Autonomously retrieved schema for {len(records)} Databases:\n{json.dumps(records, indent=2)}")
+                        return {"relevant_context": context}
+                    else:
+                        print(f"[DEBUG] Neo4j found no linked databases for entities: {matched_entities}")
+                        
+        print(f"[DEBUG] Context successfully assembled with schemas.")
     except Exception as e:
         print(f"Retrieval error: {e}")
         
@@ -98,34 +115,58 @@ async def generate_sql_node(state: QueryState):
         base_url=settings.OPENAI_BASE_URL
     )
     
-    # We pass the schema/context retrieved from Neo4j/Elasticsearch (mocked here if empty)
-    context = json.dumps(state.get("relevant_context", {}))
-    error_feedback = f"\nPrevious error to fix: {state['validation_error']}" if state.get("validation_error") else ""
+    context_data = state.get("relevant_context", {})
+    available_databases = context_data.get("available_databases", [])
+    
+    if not available_databases:
+        print("[DEBUG] No available databases to query.")
+        return {"validation_error": "I could not find the relevant details or tables to answer this question."}
+    
+    context_str = json.dumps(available_databases)
     
     prompt = f"""
-    You are an expert Oracle SQL Developer. Given the following schema context, write a highly optimized SQL query to answer the user's question.
-    Only return the raw SQL code. No markdown formatting, no explanations.
+    You are an expert SQL Developer. A user has asked a question.
+    Below are the schemas of the available databases that contain information matching the user's intent.
+    There may be multiple databases. You must select the ONE BEST database to query, and write a SQL query for it.
     
-    Context: {context}
-    Question: {state['question']}
-    {error_feedback}
+    Context (Databases, Tables, and Columns):
+    {context_str}
+    
+    User Question: {state['question']}
+    
+    CRITICAL: You MUST output a raw JSON object and nothing else. Do not output markdown code blocks.
+    Format:
+    {{
+      "target_database_id": "<database_id>",
+      "sql": "<YOUR SQL QUERY HERE>"
+    }}
     """
     
     try:
         response = await client.chat.completions.create(
             model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
         )
-        sql = response.choices[0].message.content.strip()
-        # Remove any stray markdown
-        if sql.startswith("```sql"): sql = sql[6:]
-        if sql.endswith("```"): sql = sql[:-3]
-        print(f"[DEBUG] Generated SQL Query:\n{sql.strip()}\n")
-        return {"generated_sql": sql.strip()}
+        content = response.choices[0].message.content
+        result = json.loads(content)
+        
+        sql = result.get("sql", "").strip()
+        target_db = result.get("target_database_id", "")
+        
+        # Clean up any residual markdown wrapping
+        if sql.startswith("```sql"):
+            sql = sql[6:]
+        if sql.startswith("```"):
+            sql = sql[3:]
+        if sql.endswith("```"):
+            sql = sql[:-3]
+            
+        print(f"[DEBUG] Generated SQL Query:\n{sql}\nTarget DB: {target_db}")
+        return {"generated_sql": sql.strip(), "database_id": target_db}
     except Exception as e:
-        # MOCK FALLBACK: For local testing where AWS Bedrock is inaccessible
-        print(f"LLM API Failed, falling back to mock SQL: {e}")
-        return {"generated_sql": "SELECT * FROM QUEUEMEMBERS FETCH FIRST 10 ROWS ONLY"}
+        print(f"SQL Generation error: {e}")
+        return {"validation_error": "I could not find the relevant details or tables to answer this question."}
 
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
@@ -134,12 +175,19 @@ async def execute_sql_node(state: QueryState):
     """Executes the SQL securely against the target database."""
     print("----- [QUERY NODE: execute_sql] Started -----")
     if not state.get("generated_sql"):
-        return {"validation_error": "No SQL generated to execute."}
+        return {"validation_error": state.get("validation_error", "No SQL generated to execute.")}
         
-    # For hackathon purposes, we use a default connection if none provided in context
-    conn_str = state.get("relevant_context", {}).get("connection_string")
+    target_db_id = state.get("database_id")
+    available_dbs = state.get("relevant_context", {}).get("available_databases", [])
+    
+    conn_str = None
+    for db in available_dbs:
+        if db.get("database_id") == target_db_id:
+            conn_str = db.get("conn_str")
+            break
+            
     if not conn_str:
-        conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1"
+        return {"validation_error": "The targeted database connection string could not be found."}
     
     try:
         print(f"[DEBUG] conn_str used in execute_sql_node: {conn_str}")

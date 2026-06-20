@@ -15,7 +15,6 @@ export default function QueryInterface() {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [result, setResult] = useState<any>(null)
   const [databases, setDatabases] = useState<DatabaseMeta[]>([])
-  const [selectedDb, setSelectedDb] = useState<string>("")
   const [errorMessage, setErrorMessage] = useState<string>("")
 
   useEffect(() => {
@@ -24,7 +23,6 @@ export default function QueryInterface() {
       .then(data => {
         if (data.databases && data.databases.length > 0) {
           setDatabases(data.databases);
-          setSelectedDb(data.databases[0].id);
         }
       })
       .catch(console.error)
@@ -32,14 +30,14 @@ export default function QueryInterface() {
 
   const handleAsk = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!question || !selectedDb) return
+    if (!question) return
     
     setStatus("loading")
     try {
       const response = await fetch("http://localhost:8000/api/v1/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ database_id: selectedDb, question })
+        body: JSON.stringify({ database_id: null, question })
       })
       
       const data = await response.json()
@@ -66,17 +64,10 @@ export default function QueryInterface() {
         </div>
         
         {databases.length > 0 && (
-          <div className="w-64">
-            <label className="block text-xs font-medium text-slate-500 mb-1">Target Database</label>
-            <select 
-              className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 bg-white"
-              value={selectedDb}
-              onChange={(e) => setSelectedDb(e.target.value)}
-            >
-              {databases.map(db => (
-                <option key={db.id} value={db.id}>{db.name}</option>
-              ))}
-            </select>
+          <div className="w-64 text-right">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+              Global Routing Active ({databases.length} DBs)
+            </span>
           </div>
         )}
       </div>
@@ -107,6 +98,13 @@ export default function QueryInterface() {
                 <h4 className="text-xs font-semibold text-blue-800 uppercase tracking-wider mb-2">Synthesized Answer</h4>
                 <p className="text-slate-800">{result.answer || "No text answer generated."}</p>
               </div>
+              
+              {result.database_id && (
+                <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-lg">
+                  <h4 className="text-xs font-semibold text-emerald-800 uppercase tracking-wider mb-2">Autonomously Routed To</h4>
+                  <p className="text-slate-800 font-mono text-sm">{result.database_id}</p>
+                </div>
+              )}
               
               {result.sql_used && (
                 <div className="bg-slate-900 rounded-lg p-4">
