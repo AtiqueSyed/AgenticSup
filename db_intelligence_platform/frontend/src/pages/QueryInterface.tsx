@@ -1,39 +1,84 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import ReactECharts from 'echarts-for-react'
+import { AlertCircle } from 'lucide-react'
+
+interface DatabaseMeta {
+  id: string;
+  name: string;
+  status: string;
+}
 
 export default function QueryInterface() {
   const [question, setQuestion] = useState("")
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [result, setResult] = useState<any>(null)
+  const [databases, setDatabases] = useState<DatabaseMeta[]>([])
+  const [selectedDb, setSelectedDb] = useState<string>("")
+  const [errorMessage, setErrorMessage] = useState<string>("")
+
+  useEffect(() => {
+    fetch("http://localhost:8000/api/v1/stats")
+      .then(res => res.json())
+      .then(data => {
+        if (data.databases && data.databases.length > 0) {
+          setDatabases(data.databases);
+          setSelectedDb(data.databases[0].id);
+        }
+      })
+      .catch(console.error)
+  }, [])
 
   const handleAsk = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!question) return
+    if (!question || !selectedDb) return
     
     setStatus("loading")
     try {
       const response = await fetch("http://localhost:8000/api/v1/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ database_id: "selected-db-id", question })
+        body: JSON.stringify({ database_id: selectedDb, question })
       })
-      if (!response.ok) throw new Error("Query failed")
+      
       const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.detail || "Query failed")
+      }
+      
       setResult(data)
       setStatus("success")
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
+      setErrorMessage(err.message || "An unexpected error occurred.")
       setStatus("error")
     }
   }
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-slate-900">Natural Language Query</h2>
-        <p className="text-slate-500">Ask business questions directly against your onboarded databases.</p>
+      <div className="mb-6 flex justify-between items-end">
+        <div>
+          <h2 className="text-2xl font-semibold text-slate-900">Natural Language Query</h2>
+          <p className="text-slate-500">Ask business questions directly against your onboarded databases.</p>
+        </div>
+        
+        {databases.length > 0 && (
+          <div className="w-64">
+            <label className="block text-xs font-medium text-slate-500 mb-1">Target Database</label>
+            <select 
+              className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 bg-white"
+              value={selectedDb}
+              onChange={(e) => setSelectedDb(e.target.value)}
+            >
+              {databases.map(db => (
+                <option key={db.id} value={db.id}>{db.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
@@ -41,12 +86,19 @@ export default function QueryInterface() {
         <div className="flex-1 p-6 overflow-y-auto bg-slate-50">
           {status === "idle" && (
             <div className="h-full flex items-center justify-center text-slate-400">
-              Your generated SQL, answers, and charts will appear here.
+              {databases.length === 0 ? "No databases onboarded yet. Please onboard a database first." : "Your generated SQL, answers, and charts will appear here."}
             </div>
           )}
           {status === "loading" && (
             <div className="h-full flex items-center justify-center text-slate-500 animate-pulse">
               Agent is analyzing schema and generating SQL...
+            </div>
+          )}
+          {status === "error" && (
+            <div className="h-full flex flex-col items-center justify-center text-rose-500 max-w-lg mx-auto text-center">
+              <AlertCircle className="w-10 h-10 mb-4 text-rose-400" />
+              <h3 className="text-lg font-medium">Query Failed</h3>
+              <p className="mt-2 text-sm text-rose-400 bg-rose-50 p-4 rounded-lg border border-rose-100">{errorMessage}</p>
             </div>
           )}
           {status === "success" && result && (
@@ -56,17 +108,17 @@ export default function QueryInterface() {
                 <p className="text-slate-800">{result.answer || "No text answer generated."}</p>
               </div>
               
-              {result.sql && (
+              {result.sql_used && (
                 <div className="bg-slate-900 rounded-lg p-4">
                   <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Generated SQL</h4>
-                  <pre className="text-emerald-400 text-sm overflow-x-auto"><code>{result.sql}</code></pre>
+                  <pre className="text-emerald-400 text-sm overflow-x-auto"><code>{result.sql_used}</code></pre>
                 </div>
               )}
 
-              {result.chart && result.chart.spec && (
+              {result.visualizations && result.visualizations.spec && (
                  <div className="bg-white border border-slate-200 rounded-lg p-4">
                     <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Recommended Visualization</h4>
-                    <ReactECharts option={result.chart.spec} style={{ height: '400px', width: '100%' }} />
+                    <ReactECharts option={result.visualizations.spec} style={{ height: '400px', width: '100%' }} />
                  </div>
               )}
             </div>
@@ -81,8 +133,9 @@ export default function QueryInterface() {
               onChange={e => setQuestion(e.target.value)}
               placeholder="e.g., Show me the top 10 regions by transaction volume..." 
               className="flex-1 shadow-sm"
+              disabled={databases.length === 0}
             />
-            <Button type="submit" disabled={status === "loading" || !question}>Ask Database</Button>
+            <Button type="submit" disabled={status === "loading" || !question || databases.length === 0}>Ask Database</Button>
           </form>
         </div>
       </div>

@@ -17,10 +17,74 @@ def parse_question_node(state: QueryState):
     """Initial intent parsing of the user question."""
     return {"iterations": state.get("iterations", 0)}
 
-def retrieve_context_node(state: QueryState):
+async def retrieve_context_node(state: QueryState):
     """Retrieves relevant schema, entities from Neo4j, and embeddings from Elasticsearch."""
-    existing_context = state.get("relevant_context", {})
-    return {"relevant_context": existing_context}
+    print("----- [QUERY NODE: retrieve_context] Started -----")
+    from app.core.database import es_client, neo4j_driver
+    from app.core.config import settings
+    from fastembed import TextEmbedding
+
+    question = state["question"]
+    db_id = state.get("database_id")
+    
+    context = state.get("relevant_context", {}).copy()
+    context["tables"] = []
+    context["relationships"] = []
+    
+    try:
+        # Initialize fast, local open-source embedding model
+        embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        
+        # 1. Embed Question
+        try:
+            query_vector = list(list(embedding_model.embed([question]))[0])
+            knn_query = {
+                "field": "embedding",
+                "query_vector": query_vector,
+                "k": 5,
+                "num_candidates": 50
+            }
+            if db_id:
+                knn_query["filter"] = {"term": {"database_id": db_id}}
+            search_body = {"knn": knn_query}
+        except Exception as embed_err:
+            print(f"Embedding generation failed: {embed_err}")
+            return {"relevant_context": context}
+        
+        # 2. Search in ES
+        index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables"
+        if es_client and await es_client.indices.exists(index=index_name):
+            print(f"[DEBUG] Searching ES with body: {search_body}")
+            es_results = await es_client.search(index=index_name, body=search_body)
+            print(f"[DEBUG] ES raw response hits: {len(es_results.get('hits', {}).get('hits', []))}")
+            
+            top_tables = []
+            for hit in es_results["hits"]["hits"]:
+                source = hit["_source"]
+                top_tables.append(source["table_name"])
+                context["tables"].append({
+                    "name": source["table_name"],
+                    "description": source.get("description", "")
+                })
+                
+            # 3. Query Neo4j for related entities to supplement context
+            if neo4j_driver and top_tables:
+                async with neo4j_driver.session() as session:
+                    cypher = """
+                    MATCH (e1:Entity)-[r]->(e2:Entity)
+                    WHERE e1.id IN $tables OR e2.id IN $tables
+                    RETURN e1.id AS source, type(r) AS rel, e2.id AS target
+                    """
+                    neo_res = await session.run(cypher, tables=top_tables)
+                    rels = await neo_res.data()
+                    context["relationships"] = rels
+                    print(f"[DEBUG] Retrieved {len(rels)} relationships from Neo4j Knowledge Graph.")
+                    
+        print(f"[DEBUG] Context successfully assembled. Tables: {[t['name'] for t in context['tables']]}")
+    except Exception as e:
+        print(f"Retrieval error: {e}")
+        
+    return {"relevant_context": context}
 
 import json
 from openai import AsyncOpenAI
@@ -28,6 +92,7 @@ from app.core.config import settings
 
 async def generate_sql_node(state: QueryState):
     """Uses LLM with the retrieved context to generate optimized SQL."""
+    print("----- [QUERY NODE: generate_sql] Started -----")
     client = AsyncOpenAI(
         api_key=settings.OPENAI_API_KEY,
         base_url=settings.OPENAI_BASE_URL
@@ -55,6 +120,7 @@ async def generate_sql_node(state: QueryState):
         # Remove any stray markdown
         if sql.startswith("```sql"): sql = sql[6:]
         if sql.endswith("```"): sql = sql[:-3]
+        print(f"[DEBUG] Generated SQL Query:\n{sql.strip()}\n")
         return {"generated_sql": sql.strip()}
     except Exception as e:
         # MOCK FALLBACK: For local testing where AWS Bedrock is inaccessible
@@ -66,6 +132,7 @@ from sqlalchemy import text
 
 async def execute_sql_node(state: QueryState):
     """Executes the SQL securely against the target database."""
+    print("----- [QUERY NODE: execute_sql] Started -----")
     if not state.get("generated_sql"):
         return {"validation_error": "No SQL generated to execute."}
         
@@ -75,6 +142,7 @@ async def execute_sql_node(state: QueryState):
         conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1"
     
     try:
+        print(f"[DEBUG] conn_str used in execute_sql_node: {conn_str}")
         engine = create_async_engine(conn_str)
         async with engine.connect() as conn:
             # Note: In production, read-only roles and strict validation must be enforced

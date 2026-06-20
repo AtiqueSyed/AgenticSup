@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react"
-import { BrowserRouter, Routes, Route, Link } from "react-router-dom"
+import { BrowserRouter, Routes, Route, Link, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -31,7 +31,7 @@ function Layout({ children }: { children: React.ReactNode }) {
 
 function Dashboard() {
   const [stats, setStats] = useState<{ total_databases: number, database_names?: string[], entities_identified: number, queries_today: number }>({ total_databases: 0, entities_identified: 0, queries_today: 0 })
-  const [showDbNames, setShowDbNames] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => {
     fetch("http://localhost:8000/api/v1/stats")
@@ -46,26 +46,14 @@ function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div 
           className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:shadow-md transition-all duration-200"
-          onClick={() => setShowDbNames(!showDbNames)}
+          onClick={() => navigate('/registry')}
         >
           <h3 className="font-medium text-lg text-slate-900 flex justify-between items-center">
             Total Databases
-            <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-1 rounded-full">Click to view</span>
+            <span className="text-xs font-normal text-slate-400 bg-slate-100 px-2 py-1 rounded-full">View Registry &rarr;</span>
           </h3>
           <p className="text-4xl font-light text-blue-600 mt-2">{stats.total_databases}</p>
           
-          {showDbNames && stats.database_names && stats.database_names.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-slate-100">
-              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Onboarded Sources</h4>
-              <ul className="space-y-1.5 max-h-32 overflow-y-auto pr-2">
-                {stats.database_names.map((name, idx) => (
-                  <li key={idx} className="text-sm text-slate-700 bg-slate-50 border border-slate-100 px-2.5 py-1.5 rounded-md truncate" title={name}>
-                    {name}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
           <h3 className="font-medium text-lg text-slate-900">Entities Identified</h3>
@@ -87,14 +75,7 @@ function Dashboard() {
 import DatabaseOnboarding from "@/pages/DatabaseOnboarding"
 import QueryInterface from "@/pages/QueryInterface"
 import KnowledgeGraphExplorer from "@/pages/KnowledgeGraphExplorer"
-
-// Placeholders for other pages
-const PlaceholderPage = ({ title }: { title: string }) => (
-  <div>
-    <h2 className="text-2xl font-semibold text-slate-900 mb-4">{title}</h2>
-    <p className="text-slate-600">This feature is currently under development.</p>
-  </div>
-)
+import MetadataRegistry from "@/pages/MetadataRegistry"
 
 function App() {
   return (
@@ -104,7 +85,7 @@ function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/onboard" element={<DatabaseOnboarding />} />
           <Route path="/query" element={<QueryInterface />} />
-          <Route path="/registry" element={<PlaceholderPage title="Metadata Registry" />} />
+          <Route path="/registry" element={<MetadataRegistry />} />
           <Route path="/knowledge-graph" element={<KnowledgeGraphExplorer />} />
         </Routes>
       </Layout>

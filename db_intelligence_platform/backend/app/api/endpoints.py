@@ -24,6 +24,27 @@ mock_db_connections = {}
 
 from app.core.database import neo4j_driver
 
+import json
+import os
+
+REGISTRY_FILE = "registry.json"
+
+def read_registry():
+    if os.path.exists(REGISTRY_FILE):
+        try:
+            with open(REGISTRY_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def write_registry(data):
+    try:
+        with open(REGISTRY_FILE, "w") as f:
+            json.dump(data, f)
+    except:
+        pass
+
 @router.get("/stats")
 async def get_stats():
     entities_count = 0
@@ -39,25 +60,27 @@ async def get_stats():
             
     db_count = 0
     db_names = []
-    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
-    try:
-        from sqlalchemy.ext.asyncio import create_async_engine
-        from sqlalchemy import text
-        engine = create_async_engine(dev_db_str)
-        async with engine.connect() as conn:
-            res = await conn.execute(text("SELECT database_name FROM onboarded_databases"))
-            rows = res.fetchall()
-            if rows:
-                db_names = [r[0] for r in rows if r[0]]
-                db_count = len(db_names)
-        await engine.dispose()
-    except Exception:
-        # Fallback to memory if DB query fails or table isn't created yet
+    
+    # Retrieve stats securely from the file registry
+    registry = read_registry()
+    db_names = [info.get("name", "Unknown DB") for info in registry.values()]
+    databases = [
+        {
+            "id": db_id,
+            "name": info.get("name", "Unknown DB"),
+            "status": tasks_status.get(db_id, "completed")
+        }
+        for db_id, info in registry.items()
+    ]
+    db_count = len(db_names)
+            
+    if db_count == 0:
         db_count = len(tasks_status)
             
     return {
         "total_databases": db_count,
         "database_names": db_names,
+        "databases": databases,
         "entities_identified": entities_count,
         "queries_today": 0
     }
@@ -75,6 +98,14 @@ async def onboard_database(request: OnboardRequest, background_tasks: Background
     # Deterministic ID to prevent duplicate DB onboardings
     db_id = hashlib.md5(request.connection_string.encode()).hexdigest()
     mock_db_connections[db_id] = request.connection_string
+    
+    # Store metadata securely in file registry
+    registry = read_registry()
+    registry[db_id] = {
+        "name": request.database_name,
+        "connection_string": request.connection_string
+    }
+    write_registry(registry)
     
     # Proactively wipe previous footprint to prevent entity duplication
     if neo4j_driver:
@@ -204,8 +235,18 @@ async def ask_question(request: QueryRequest):
     conn_str = mock_db_connections.get(request.database_id)
     if not conn_str and mock_db_connections:
         conn_str = list(mock_db_connections.values())[-1]
-    elif not conn_str:
-        # Fallback to local Oracle (using host.docker.internal to reach Windows host from inside Docker container)
+        
+    if not conn_str:
+        # Fetch dynamically from the file registry so it survives backend container restarts
+        registry = read_registry()
+        if request.database_id == "selected-db-id":
+            if registry:
+                conn_str = list(registry.values())[-1].get("connection_string")
+        else:
+            conn_str = registry.get(request.database_id, {}).get("connection_string")
+
+    if not conn_str:
+        # Final fallback
         conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1"
 
     # Hazelcast Chat Session Caching

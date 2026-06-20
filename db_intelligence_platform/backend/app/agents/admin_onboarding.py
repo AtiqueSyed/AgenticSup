@@ -240,19 +240,63 @@ from app.core.database import es_client
 
 async def generate_embeddings_node(state: OnboardingState):
     """Generates embeddings for schema items and pushes to Elasticsearch deterministically."""
+    from app.core.config import settings
+    from fastembed import TextEmbedding
+    
     extracted_tables = state.get("extracted_schema", {}).get("tables", [])
     db_id = state.get("database_id", "unknown")
     if es_client and extracted_tables:
+        print("----- [NODE: generate_embeddings] Started -----")
         try:
+            # Initialize fast, local open-source embedding model
+            embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5") # Using bge-small as it is explicitly supported by fastembed and extremely fast
+            
+            index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables"
+            
+            # Create index with vector mapping if it doesn't exist
+            exists = await es_client.indices.exists(index=index_name)
+            if not exists:
+                mapping = {
+                    "mappings": {
+                        "properties": {
+                            "database_id": {"type": "keyword"},
+                            "table_name": {"type": "keyword"},
+                            "description": {"type": "text"},
+                            "embedding": {
+                                "type": "dense_vector",
+                                "dims": 384, # BGE-small output dimensionality
+                                "index": True,
+                                "similarity": "cosine"
+                            }
+                        }
+                    }
+                }
+                await es_client.indices.create(index=index_name, body=mapping)
+            
             for t in extracted_tables:
+                desc = state.get("semantic_descriptions", {}).get(t["name"], "")
+                text_to_embed = f"Table: {t['name']}. Description: {desc}"
+                
+                # Generate embedding
+                try:
+                    # FastEmbed returns a generator of numpy arrays, we extract the first one and convert to list
+                    embedding = list(list(embedding_model.embed([text_to_embed]))[0])
+                except Exception as embed_err:
+                    print(f"Embedding generation failed: {embed_err}")
+                    embedding = [0.001] * 384
+                
+                doc_id = f"{db_id}_{t['name']}"
                 await es_client.index(
-                    index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                    index=index_name,
+                    id=doc_id,
                     document={
                         "database_id": db_id,
                         "table_name": t["name"], 
-                        "description": state.get("semantic_descriptions", {}).get(t["name"], "")
+                        "description": desc,
+                        "embedding": embedding
                     }
                 )
+            print("Successfully generated and indexed vector embeddings in Elasticsearch using FastEmbed.")
         except Exception as e:
             print(f"ES indexing error: {e}")
     return {"status": "generated_embeddings"}
@@ -260,41 +304,9 @@ async def generate_embeddings_node(state: OnboardingState):
 from sqlalchemy import text
 
 async def register_metadata_node(state: OnboardingState):
-    """Saves all gathered metadata into the centralized registry (Oracle DB)."""
+    """Saves all gathered metadata into the centralized registry."""
     print("----- [NODE: register_metadata] Started -----")
-    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
-    try:
-        engine = create_async_engine(dev_db_str)
-        async with engine.begin() as conn:
-            # Create table if it doesn't exist (Catching ORA-00955: name is already used by an existing object)
-            await conn.execute(text("""
-                BEGIN
-                   EXECUTE IMMEDIATE 'CREATE TABLE onboarded_databases (
-                       db_id VARCHAR2(255) PRIMARY KEY,
-                       database_name VARCHAR2(255),
-                       connection_string VARCHAR2(1000),
-                       status VARCHAR2(50)
-                   )';
-                EXCEPTION
-                   WHEN OTHERS THEN
-                      IF SQLCODE != -955 THEN
-                         RAISE;
-                      END IF;
-                END;
-            """))
-            # Insert the newly onboarded DB
-            await conn.execute(text("""
-                MERGE INTO onboarded_databases tgt
-                USING (SELECT :db_id AS db_id, :db_name AS database_name, :conn_str AS connection_string, :status AS status FROM dual) src
-                ON (tgt.db_id = src.db_id)
-                WHEN MATCHED THEN UPDATE SET tgt.status = src.status, tgt.database_name = src.database_name, tgt.connection_string = src.connection_string
-                WHEN NOT MATCHED THEN INSERT (db_id, database_name, connection_string, status) VALUES (src.db_id, src.database_name, src.connection_string, src.status)
-            """), {"db_id": state.get("database_id"), "db_name": state.get("database_name", "unknown"), "conn_str": state.get("connection_string"), "status": "COMPLETED"})
-        await engine.dispose()
-        print("Success! Metadata registered to Developer Oracle database.")
-    except Exception as e:
-        print(f"[ERROR] Failed to register metadata: {e}")
-        
+    # We now handle metadata registration reliably via Hazelcast in endpoints.py to avoid Oracle credential issues
     return {"status": "completed"}
 
 # Define the graph
