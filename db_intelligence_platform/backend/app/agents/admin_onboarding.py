@@ -55,10 +55,23 @@ async def extract_schema_node(state: OnboardingState):
                         seen_tables.add(table_name)
                         columns = [{"name": c["name"], "type": str(c["type"])} for c in inspector.get_columns(table_name, schema=schema)]
                         foreign_keys = inspector.get_foreign_keys(table_name, schema=schema)
+                        
+                        # Extract 3 sample rows to prevent LLM hallucinations
+                        sample_data = []
+                        try:
+                            from sqlalchemy import text
+                            query = f"SELECT * FROM {schema}.{table_name}" if schema else f"SELECT * FROM {table_name}"
+                            query += " FETCH FIRST 3 ROWS ONLY"
+                            res = conn.execute(text(query))
+                            sample_data = [dict(row._mapping) for row in res]
+                        except Exception as sample_err:
+                            print(f"[DEBUG] Could not fetch samples for {table_name}: {sample_err}")
+                            
                         tables_data.append({
                             "name": table_name,
                             "columns": columns,
-                            "foreign_keys": foreign_keys
+                            "foreign_keys": foreign_keys,
+                            "sample_data": sample_data
                         })
                 except Exception as e:
                     print(f"Skipping tables in schema {schema}: {e}")
@@ -216,7 +229,8 @@ async def construct_knowledge_graph_node(state: OnboardingState):
                 
                 # Fetch schema dictionaries
                 extracted_tables = state.get("extracted_schema", {}).get("tables", [])
-                table_schema_dict = {t["name"].upper(): t["columns"] for t in extracted_tables}
+                # Map full table object to extract sample data later
+                table_schema_dict = {t["name"].upper(): t for t in extracted_tables}
                 
                 for table_name in mapped_tables:
                     await session.run(
@@ -231,18 +245,33 @@ async def construct_knowledge_graph_node(state: OnboardingState):
                         t_id=f"{db_id}_{table_name}", t_name=table_name, db_id=db_id, e_id=ent_id
                     )
                     
-                    # Push physical columns
-                    columns = table_schema_dict.get(table_name.upper(), [])
+                    # Push physical columns and sample values
+                    table_obj = table_schema_dict.get(table_name.upper(), {})
+                    columns = table_obj.get("columns", [])
+                    sample_data = table_obj.get("sample_data", [])
+                    
                     for col in columns:
                         col_name = col["name"]
                         col_type = col.get("type", "unknown")
+                        
+                        # Extract non-null unique sample values for this column (up to 3)
+                        sample_vals = []
+                        for row in sample_data:
+                            val = row.get(col_name)
+                            if val is not None and str(val) not in sample_vals:
+                                sample_vals.append(str(val))
+                                
                         await session.run(
                             "MERGE (c:Column {id: $c_id}) "
-                            "SET c.name = $c_name, c.type = $c_type "
+                            "SET c.name = $c_name, c.type = $c_type, c.sample_values = $c_samples "
                             "WITH c "
                             "MATCH (t:Table {id: $t_id}) "
                             "MERGE (t)-[:HAS_COLUMN]->(c)",
-                            c_id=f"{db_id}_{table_name}_{col_name}", c_name=col_name, c_type=col_type, t_id=f"{db_id}_{table_name}"
+                            c_id=f"{db_id}_{table_name}_{col_name}", 
+                            c_name=col_name, 
+                            c_type=col_type, 
+                            c_samples=sample_vals,
+                            t_id=f"{db_id}_{table_name}"
                         )
             
             # Create Relationships

@@ -79,7 +79,7 @@ async def retrieve_context_node(state: QueryState):
                     MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
                     WHERE e.id IN $matched_entities
                     OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                    WITH db, e, t, collect({name: c.name, type: c.type}) AS columns
+                    WITH db, e, t, collect({name: c.name, type: c.type, sample_values: c.sample_values}) AS columns
                     ORDER BY size(columns) DESC
                     WITH db, e, collect({name: t.name, columns: columns})[0..2] AS top_tables_for_db
                     RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, top_tables_for_db AS tables
