@@ -210,17 +210,21 @@ async def construct_knowledge_graph_node(state: OnboardingState):
             
             # Create Relationships
             print(f"Merging {len(relationships)} Relationships into Neo4j...")
+            print(f"[DEBUG] Relationships raw: {relationships}")
             try:
                 for rel in relationships:
                     rel_type = rel.get('type', 'RELATES_TO')
                     # Sanitize rel_type (remove backticks to prevent injection)
                     rel_type_safe = str(rel_type).replace("`", "")
-                    await session.run(
+                    query = (
                         "MERGE (src:Entity {id: $source}) "
                         "ON CREATE SET src.label = $source "
                         "MERGE (tgt:Entity {id: $target}) "
                         "ON CREATE SET tgt.label = $target "
-                        "MERGE (src)-[:`{rel_type}`]->(tgt)".format(rel_type=rel_type_safe),
+                        f"MERGE (src)-[:`{rel_type_safe}`]->(tgt)"
+                    )
+                    await session.run(
+                        query,
                         source=str(rel.get("source", "unknown")).strip(), 
                         target=str(rel.get("target", "unknown")).strip()
                     )
