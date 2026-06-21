@@ -287,6 +287,8 @@ def validate_results_node(state: QueryState):
 async def synthesize_answer_node(state: QueryState):
     """Takes the question and the raw query results and generates a natural language answer."""
     if state.get("validation_error"):
+        if "ORA-" in state["validation_error"]:
+            return {"synthesized_answer": "I could not find the data you were looking for. Please ask again with more details."}
         return {"synthesized_answer": f"I encountered an error trying to query the database: {state['validation_error']}"}
         
     client = AsyncOpenAI(
