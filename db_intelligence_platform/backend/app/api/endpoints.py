@@ -314,8 +314,8 @@ async def get_knowledge_graph():
         return {"nodes": [], "edges": []}
         
     async with neo4j_driver.session() as session:
-        # Fetch all Entities and Databases
-        nodes_res = await session.run("MATCH (n) WHERE n:Entity OR n:Database RETURN n.id AS id, coalesce(n.label, n.name, n.id) AS label, labels(n)[0] AS type")
+        # Fetch all Entities, Databases, Tables, and Columns
+        nodes_res = await session.run("MATCH (n) WHERE n:Entity OR n:Database OR n:Table OR n:Column RETURN n.id AS id, coalesce(n.label, n.name, n.id) AS label, labels(n)[0] AS type")
         raw_nodes = await nodes_res.data()
         
         # Fetch all relationships
@@ -327,7 +327,7 @@ async def get_knowledge_graph():
             {
                 "id": n["id"], 
                 "type": "input" if n["type"] == "Database" else "default", 
-                "data": {"label": f"{n['type']}:\n{n['label']}" if n["type"] == "Database" else n["label"]}, 
+                "data": {"label": f"[{n['type']}]\n{n['label']}"}, 
                 "position": {"x": 0, "y": 0}
             }
             for n in raw_nodes if n.get("id")

@@ -120,6 +120,12 @@ async def generate_semantics_node(state: OnboardingState):
     Analyze the following database schema and provide a semantic description for each table and its business purpose.
     Return ONLY a valid JSON object where keys are table names and values are the string descriptions.
     
+    Example format:
+    {{
+      "table_name_1": "Description of table 1",
+      "table_name_2": "Description of table 2"
+    }}
+    
     Schema:
     {schema_summary}
     """
@@ -178,24 +184,44 @@ async def identify_entities_node(state: OnboardingState):
     """
     
     try:
-        print("Calling AWS Bedrock LLM to identify abstract Entities and Relationships...")
+        print("Calling AWS Bedrock LLM to identify Entities...")
         response = await client.chat.completions.create(
             model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
         content = response.choices[0].message.content
-        result = json.loads(content)
-        entities = result.get("entities", [])
-        print(f"Success! Identified {len(entities)} Entities.")
+        graph_data = json.loads(content)
+        
+        entities = graph_data.get("entities", [])
+        relationships = graph_data.get("relationships", [])
+        
+        # --- DETERMINISTIC FALLBACK: Ensure 100% table coverage ---
+        mapped_tables_set = set()
+        for ent in entities:
+            mapped_tables_set.update([t.upper() for t in ent.get("mapped_tables", [])])
+            
+        for t in extracted_tables:
+            table_name = t["name"]
+            if table_name.upper() not in mapped_tables_set:
+                print(f"[DEBUG] Auto-generating fallback Entity for unmapped table: {table_name}")
+                entities.append({
+                    "id": table_name.capitalize(),
+                    "description": f"Core business entity containing records and details regarding {table_name}.",
+                    "mapped_tables": [table_name],
+                    "entity_keys": []
+                })
+        # ---------------------------------------------------------
+        
+        print(f"Success! Identified {len(entities)} entities.")
         return {
             "status": "identified_entities", 
-            "entities": entities, 
-            "relationships": result.get("relationships", [])
+            "entities": entities,
+            "relationships": relationships
         }
     except Exception as e:
         print(f"Error calling LLM: {e}")
-        return {"status": "error", "errors": state.get("errors", []) + [f"LLM Entity Extraction Error: {str(e)}"]}
+        return {"status": "error", "errors": state.get("errors", []) + [f"LLM Entity Error: {str(e)}"]}
 
 async def map_entity_columns_node(state: OnboardingState):
     """Takes the identified entities and maps physical column keys to them."""
@@ -292,7 +318,47 @@ async def construct_knowledge_graph_node(state: OnboardingState):
             # Create Database Node
             await session.run("MERGE (db:Database {id: $id}) SET db.connection_string = $conn_str, db.name = $db_name", id=db_id, conn_str=conn_str, db_name=db_name)
             
-            # Push tables mapping to this entity
+            # Step 1: Push ALL physical tables and columns deterministically
+            print(f"[DEBUG] Pushing {len(extracted_tables)} physical tables to Neo4j...")
+            for table in extracted_tables:
+                table_name = table["name"]
+                columns = table.get("columns", [])
+                sample_data = table.get("sample_data", [])
+                
+                await session.run(
+                    "MERGE (t:Table {id: $t_id}) "
+                    "SET t.name = $t_name "
+                    "WITH t "
+                    "MATCH (db:Database {id: $db_id}) "
+                    "MERGE (db)-[:HAS_TABLE]->(t)",
+                    t_id=f"{db_id}_{table_name}", t_name=table_name, db_id=db_id
+                )
+                
+                for col in columns:
+                    col_name = col["name"]
+                    col_type = col.get("type", "unknown")
+                    
+                    sample_vals = []
+                    for row in sample_data:
+                        val = row.get(col_name)
+                        if val is not None and str(val) not in sample_vals:
+                            sample_vals.append(str(val))
+                            
+                    await session.run(
+                        "MERGE (c:Column {id: $c_id}) "
+                        "SET c.name = $c_name, c.type = $c_type, c.sample_values = $c_samples "
+                        "WITH c "
+                        "MATCH (t:Table {id: $t_id}) "
+                        "MERGE (t)-[:HAS_COLUMN]->(c)",
+                        c_id=f"{db_id}_{table_name}_{col_name}",
+                        c_name=col_name,
+                        c_type=col_type,
+                        c_samples=sample_vals,
+                        t_id=f"{db_id}_{table_name}"
+                    )
+            
+            # Step 2: Push logical Entities and link them to the deterministic tables
+            print(f"[DEBUG] Pushing {len(entities)} logical Entities to Neo4j...")
             for ent in entities:
                 ent_id = ent.get("id")
                 mapped_tables = ent.get("mapped_tables", [])
@@ -305,65 +371,37 @@ async def construct_knowledge_graph_node(state: OnboardingState):
                     e_id=ent_id, e_name=ent_id, desc=ent.get("description", ""), db_id=db_id
                 )
                 
+                # Link Table -> Entity
                 for table_name in mapped_tables:
                     if table_name.upper() not in table_schema_dict:
-                        print(f"[DEBUG] Dropping hallucinated mapped_table: {table_name}")
                         continue
                         
+                    physical_table_name = table_schema_dict[table_name.upper()]["name"]
+                        
                     await session.run(
-                        "MERGE (t:Table {id: $t_id}) "
-                        "SET t.name = $t_name "
-                        "WITH t "
-                        "MATCH (db:Database {id: $db_id}) "
-                        "MERGE (db)-[:HAS_TABLE]->(t) "
-                        "WITH t "
+                        "MATCH (t:Table {id: $t_id}) "
                         "MATCH (e:Entity {id: $e_id}) "
                         "MERGE (t)-[:MAPS_TO]->(e)",
-                        t_id=f"{db_id}_{table_name}", t_name=table_name, db_id=db_id, e_id=ent_id
+                        t_id=f"{db_id}_{physical_table_name}", e_id=ent_id
                     )
                     
-                    # Push physical columns and sample values
-                    table_obj = table_schema_dict.get(table_name.upper(), {})
-                    columns = table_obj.get("columns", [])
-                    sample_data = table_obj.get("sample_data", [])
-                    
-                    for col in columns:
-                        col_name = col["name"]
-                        col_type = col.get("type", "unknown")
-                        
-                        # Check if this column is marked as an entity key
-                        is_key = False
-                        for key_obj in entity_keys:
-                            if key_obj.get("table", "").upper() == table_name.upper() and key_obj.get("column", "").upper() == col_name.upper():
-                                is_key = True
-                                break
-                                
-                        # Extract non-null unique sample values for this column (up to 3)
-                        sample_vals = []
-                        for row in sample_data:
-                            val = row.get(col_name)
-                            if val is not None and str(val) not in sample_vals:
-                                sample_vals.append(str(val))
-                                
-                        await session.run(
-                            "MERGE (c:Column {id: $c_id}) "
-                            "SET c.name = $c_name, c.type = $c_type, c.sample_values = $c_samples, c.is_entity_key = $is_key "
-                            "WITH c "
-                            "MATCH (t:Table {id: $t_id}) "
-                            "MERGE (t)-[:HAS_COLUMN]->(c) "
-                            "WITH c "
-                            "MATCH (e:Entity {id: $e_id}) "
-                            "FOREACH (ignoreMe IN CASE WHEN $is_key THEN [1] ELSE [] END | "
-                            "   MERGE (c)-[:REPRESENTS]->(e)"
-                            ")",
-                            c_id=f"{db_id}_{table_name}_{col_name}", 
-                            c_name=col_name, 
-                            c_type=col_type, 
-                            c_samples=sample_vals,
-                            is_key=is_key,
-                            t_id=f"{db_id}_{table_name}",
-                            e_id=ent_id
-                        )
+                    # Set is_entity_key on columns and link Column -> Entity
+                    for key_obj in entity_keys:
+                        if key_obj.get("table", "").upper() == table_name.upper():
+                            col_name = key_obj.get("column", "")
+                            physical_col_name = col_name
+                            for c in table_schema_dict[table_name.upper()].get("columns", []):
+                                if c["name"].upper() == col_name.upper():
+                                    physical_col_name = c["name"]
+                                    break
+                                    
+                            await session.run(
+                                "MATCH (c:Column {id: $c_id}) "
+                                "SET c.is_entity_key = true, c.represented_entity = $e_id "
+                                "WITH c MATCH (e:Entity {id: $e_id}) "
+                                "MERGE (c)-[:REPRESENTS]->(e)",
+                                c_id=f"{db_id}_{physical_table_name}_{physical_col_name}", e_id=ent_id
+                            )
             
             # Create Relationships
             print(f"Merging {len(relationships)} Relationships into Neo4j...")
