@@ -102,7 +102,7 @@ export default function QueryInterface() {
               {result.database_id && (
                 <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-lg">
                   <h4 className="text-xs font-semibold text-emerald-800 uppercase tracking-wider mb-2">Autonomously Routed To</h4>
-                  <p className="text-slate-800 font-mono text-sm">{result.database_id}</p>
+                  <p className="text-slate-800 font-mono text-sm">{result.database_name || result.database_id}</p>
                 </div>
               )}
               

@@ -160,10 +160,16 @@ async def identify_entities_node(state: OnboardingState):
     
     prompt = f"""
     Analyze this database schema and identify the core abstract business Entities (nodes) and Relationships (edges) to construct a Knowledge Graph.
-    For each Entity, provide a rich semantic 'description' (this will be vectorized for semantic search) and an array of 'mapped_tables' that physical represent this entity in the database.
+    For each Entity, provide a rich semantic 'description' (this will be vectorized for semantic search), and an array of 'mapped_tables' that physical represent this entity in the database.
     Return ONLY a valid JSON object in this exact format:
     {{
-      "entities": [ {{"id": "Customer", "label": "Customer Entity", "description": "Represents a human or business that purchases products...", "mapped_tables": ["CUSTOMERS", "USERS"]}}, ... ],
+      "entities": [
+        {{
+          "id": "Customer",
+          "description": "...",
+          "mapped_tables": ["CUSTOMERS"]
+        }}
+      ],
       "relationships": [ {{"source": "Customer", "target": "Order", "type": "PLACES"}}, ... ]
     }}
     
@@ -191,6 +197,78 @@ async def identify_entities_node(state: OnboardingState):
         print(f"Error calling LLM: {e}")
         return {"status": "error", "errors": state.get("errors", []) + [f"LLM Entity Extraction Error: {str(e)}"]}
 
+async def map_entity_columns_node(state: OnboardingState):
+    """Takes the identified entities and maps physical column keys to them."""
+    print("----- [NODE: map_entity_columns] Started -----")
+    if state.get("status") == "error":
+        return state
+        
+    client = AsyncOpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        base_url=settings.OPENAI_BASE_URL
+    )
+    
+    extracted_tables = state["extracted_schema"].get("tables", [])
+    entities = state.get("entities", [])
+    
+    schema_summary = json.dumps([
+        {"table": t["name"], "columns": [c["name"] for c in t["columns"]]} 
+        for t in extracted_tables
+    ])
+    
+    entities_summary = json.dumps([
+        {"id": e["id"], "mapped_tables": e.get("mapped_tables", [])} 
+        for e in entities
+    ])
+    
+    prompt = f"""
+    You are an expert Database Architect. I have identified the core abstract business Entities in this database schema.
+    Your task is to analyze the tables mapped to each entity, and identify the specific 'entity_keys' (primary keys or unique mapping columns) that perfectly represent that entity in the physical table.
+    
+    If a mapped table doesn't have a clear column that represents the entity, omit it. Do NOT hallucinate columns.
+    
+    Return ONLY a valid JSON object in this exact format updating the entities:
+    {{
+      "entities": [
+        {{
+          "id": "Customer",
+          "entity_keys": [{{"table": "CUSTOMERS", "column": "CUSTOMER_ID"}}]
+        }}
+      ]
+    }}
+    
+    Schema:
+    {schema_summary}
+    
+    Entities:
+    {entities_summary}
+    """
+    
+    try:
+        print("Calling AWS Bedrock LLM to map Entity column keys...")
+        response = await client.chat.completions.create(
+            model=settings.DEFAULT_LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        result = json.loads(content)
+        
+        mapped_keys = result.get("entities", [])
+        key_map = {e["id"]: e.get("entity_keys", []) for e in mapped_keys}
+        
+        # Merge the entity_keys back into the main entities list
+        for ent in entities:
+            if ent["id"] in key_map:
+                ent["entity_keys"] = key_map[ent["id"]]
+                
+        print("Success! Entity keys mapped.")
+        return {"status": "mapped_columns", "entities": entities}
+    except Exception as e:
+        print(f"Error calling LLM: {e}")
+        return {"status": "error", "errors": state.get("errors", []) + [f"LLM Key Mapping Error: {str(e)}"]}
+
+
 from app.core.database import neo4j_driver
 
 async def construct_knowledge_graph_node(state: OnboardingState):
@@ -202,37 +280,36 @@ async def construct_knowledge_graph_node(state: OnboardingState):
         
     entities = state.get("entities", [])
     relationships = state.get("relationships", [])
+    db_id = state.get("database_id", "unknown")
+    conn_str = state.get("connection_string", "unknown")
+    db_name = state.get("database_name", db_id)
+    extracted_tables = state.get("extracted_schema", {}).get("tables", [])
+    table_schema_dict = {t["name"].upper(): t for t in extracted_tables}
     
     if neo4j_driver and entities:
         print(f"Connecting to Neo4j and merging {len(entities)} Entities...")
         async with neo4j_driver.session() as session:
             # Create Database Node
-            db_id = state.get("database_id", "unknown")
-            conn_str = state.get("connection_string", "unknown")
-            db_name = state.get("database_name", db_id)
             await session.run("MERGE (db:Database {id: $id}) SET db.connection_string = $conn_str, db.name = $db_name", id=db_id, conn_str=conn_str, db_name=db_name)
             
-            # Create Entities and Link to Database
+            # Push tables mapping to this entity
             for ent in entities:
                 ent_id = ent.get("id")
+                mapped_tables = ent.get("mapped_tables", [])
+                entity_keys = ent.get("entity_keys", [])
+                
+                # Create Entity
                 await session.run(
-                    "MERGE (e:Entity {id: $id}) "
-                    "SET e.label = $label "
-                    "WITH e "
-                    "MATCH (db:Database {id: $db_id}) "
-                    "MERGE (db)-[:CONTAINS]->(e)",
-                    id=ent_id, label=ent.get("label", ent_id), db_id=db_id
+                    "MERGE (e:Entity {id: $e_id}) SET e.name = $e_name, e.description = $desc "
+                    "WITH e MATCH (db:Database {id: $db_id}) MERGE (db)-[:CONTAINS]->(e)",
+                    e_id=ent_id, e_name=ent_id, desc=ent.get("description", ""), db_id=db_id
                 )
                 
-                # Push tables mapping to this entity
-                mapped_tables = ent.get("mapped_tables", [])
-                
-                # Fetch schema dictionaries
-                extracted_tables = state.get("extracted_schema", {}).get("tables", [])
-                # Map full table object to extract sample data later
-                table_schema_dict = {t["name"].upper(): t for t in extracted_tables}
-                
                 for table_name in mapped_tables:
+                    if table_name.upper() not in table_schema_dict:
+                        print(f"[DEBUG] Dropping hallucinated mapped_table: {table_name}")
+                        continue
+                        
                     await session.run(
                         "MERGE (t:Table {id: $t_id}) "
                         "SET t.name = $t_name "
@@ -254,6 +331,13 @@ async def construct_knowledge_graph_node(state: OnboardingState):
                         col_name = col["name"]
                         col_type = col.get("type", "unknown")
                         
+                        # Check if this column is marked as an entity key
+                        is_key = False
+                        for key_obj in entity_keys:
+                            if key_obj.get("table", "").upper() == table_name.upper() and key_obj.get("column", "").upper() == col_name.upper():
+                                is_key = True
+                                break
+                                
                         # Extract non-null unique sample values for this column (up to 3)
                         sample_vals = []
                         for row in sample_data:
@@ -263,30 +347,34 @@ async def construct_knowledge_graph_node(state: OnboardingState):
                                 
                         await session.run(
                             "MERGE (c:Column {id: $c_id}) "
-                            "SET c.name = $c_name, c.type = $c_type, c.sample_values = $c_samples "
+                            "SET c.name = $c_name, c.type = $c_type, c.sample_values = $c_samples, c.is_entity_key = $is_key "
                             "WITH c "
                             "MATCH (t:Table {id: $t_id}) "
-                            "MERGE (t)-[:HAS_COLUMN]->(c)",
+                            "MERGE (t)-[:HAS_COLUMN]->(c) "
+                            "WITH c "
+                            "MATCH (e:Entity {id: $e_id}) "
+                            "FOREACH (ignoreMe IN CASE WHEN $is_key THEN [1] ELSE [] END | "
+                            "   MERGE (c)-[:REPRESENTS]->(e)"
+                            ")",
                             c_id=f"{db_id}_{table_name}_{col_name}", 
                             c_name=col_name, 
                             c_type=col_type, 
                             c_samples=sample_vals,
-                            t_id=f"{db_id}_{table_name}"
+                            is_key=is_key,
+                            t_id=f"{db_id}_{table_name}",
+                            e_id=ent_id
                         )
             
             # Create Relationships
             print(f"Merging {len(relationships)} Relationships into Neo4j...")
-            print(f"[DEBUG] Relationships raw: {relationships}")
             try:
                 for rel in relationships:
                     rel_type = rel.get('type', 'RELATES_TO')
                     # Sanitize rel_type (remove backticks to prevent injection)
                     rel_type_safe = str(rel_type).replace("`", "")
                     query = (
-                        "MERGE (src:Entity {id: $source}) "
-                        "ON CREATE SET src.label = $source "
-                        "MERGE (tgt:Entity {id: $target}) "
-                        "ON CREATE SET tgt.label = $target "
+                        "MATCH (src:Entity {id: $source}) "
+                        "MATCH (tgt:Entity {id: $target}) "
                         f"MERGE (src)-[:`{rel_type_safe}`]->(tgt)"
                     )
                     await session.run(
@@ -379,6 +467,7 @@ workflow = StateGraph(OnboardingState)
 workflow.add_node("extract_schema", extract_schema_node)
 workflow.add_node("generate_semantics", generate_semantics_node)
 workflow.add_node("identify_entities", identify_entities_node)
+workflow.add_node("map_entity_columns", map_entity_columns_node)
 workflow.add_node("construct_knowledge_graph", construct_knowledge_graph_node)
 workflow.add_node("generate_embeddings", generate_embeddings_node)
 workflow.add_node("register_metadata", register_metadata_node)
@@ -386,7 +475,8 @@ workflow.add_node("register_metadata", register_metadata_node)
 workflow.add_edge(START, "extract_schema")
 workflow.add_edge("extract_schema", "generate_semantics")
 workflow.add_edge("generate_semantics", "identify_entities")
-workflow.add_edge("identify_entities", "construct_knowledge_graph")
+workflow.add_edge("identify_entities", "map_entity_columns")
+workflow.add_edge("map_entity_columns", "construct_knowledge_graph")
 workflow.add_edge("construct_knowledge_graph", "generate_embeddings")
 workflow.add_edge("generate_embeddings", "register_metadata")
 workflow.add_edge("register_metadata", END)

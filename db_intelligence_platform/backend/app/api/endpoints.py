@@ -162,14 +162,21 @@ async def delete_database(database_id: str):
     if neo4j_driver:
         try:
             async with neo4j_driver.session() as session:
-                await session.run("MATCH (db:Database {id: $db_id})-[:CONTAINS]->(e:Entity) DETACH DELETE db, e", db_id=database_id)
+                cypher = """
+                MATCH (db:Database {id: $db_id})
+                OPTIONAL MATCH (db)-[:HAS_TABLE]->(t:Table)
+                OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                OPTIONAL MATCH (db)-[:CONTAINS]->(e:Entity)
+                DETACH DELETE db, t, c, e
+                """
+                await session.run(cypher, db_id=database_id)
         except Exception:
             pass
             
     if es_client:
         try:
             await es_client.delete_by_query(
-                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}entities",
                 query={"match": {"database_id": database_id}},
                 ignore_unavailable=True
             )
@@ -187,6 +194,12 @@ async def delete_database(database_id: str):
         
     tasks_status.pop(database_id, None)
     mock_db_connections.pop(database_id, None)
+    
+    registry = read_registry()
+    if database_id in registry:
+        del registry[database_id]
+        write_registry(registry)
+        
     return {"status": "deleted", "database_id": database_id}
 
 @router.delete("/graph/clear")
@@ -202,7 +215,7 @@ async def clear_knowledge_graph():
     if es_client:
         try:
             await es_client.delete_by_query(
-                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}entities",
                 query={"match_all": {}},
                 ignore_unavailable=True
             )
@@ -220,6 +233,7 @@ async def clear_knowledge_graph():
         
     tasks_status.clear()
     mock_db_connections.clear()
+    write_registry({})
     return {"status": "graph cleared"}
 
 @router.get("/onboard/{database_id}/status")
@@ -279,6 +293,7 @@ async def ask_question(request: QueryRequest):
 
         return {
             "database_id": final_state.get("database_id"),
+            "database_name": final_state.get("database_name"),
             "answer": final_state.get("synthesized_answer", "Error synthesizing answer"),
             "sql_used": final_state.get("generated_sql"),
             "visualizations": final_state.get("recommended_visualizations"),

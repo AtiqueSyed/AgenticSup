@@ -5,6 +5,7 @@ from langgraph.graph import StateGraph, START, END
 class QueryState(TypedDict):
     question: str
     database_id: str
+    database_name: Optional[str]
     relevant_context: Dict[str, Any]
     generated_sql: Optional[str]
     query_results: Optional[List[Dict[str, Any]]]
@@ -43,7 +44,7 @@ async def retrieve_context_node(state: QueryState):
             knn_query = {
                 "field": "embedding",
                 "query_vector": query_vector,
-                "k": 1,
+                "k": 2,
                 "num_candidates": 50
             }
             # Remove db_id filter for global routing
@@ -62,9 +63,9 @@ async def retrieve_context_node(state: QueryState):
                 
                 matched_entities = []
                 
-                # Enforce strict top 1 match
-                hits = es_results.get("hits", {}).get("hits", [])[:1]
-                print(f"[DEBUG] ES raw response hits (restricted to 1): {len(hits)}")
+                # Enforce strict top 2 match
+                hits = es_results.get("hits", {}).get("hits", [])[:2]
+                print(f"[DEBUG] ES raw response hits (restricted to 2): {len(hits)}")
                 for hit in hits:
                     source = hit["_source"]
                     if source.get("entity_id") not in matched_entities:
@@ -79,7 +80,8 @@ async def retrieve_context_node(state: QueryState):
                     MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
                     WHERE e.id IN $matched_entities
                     OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                    WITH db, e, t, collect({name: c.name, type: c.type, sample_values: c.sample_values}) AS columns
+                    WHERE EXISTS((c)-[:REPRESENTS]->(e)) OR NOT EXISTS((t)-[:HAS_COLUMN]->(:Column)-[:REPRESENTS]->(e))
+                    WITH db, e, t, collect({name: c.name, type: c.type, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
                     ORDER BY size(columns) DESC
                     WITH db, e, collect({name: t.name, columns: columns})[0..2] AS top_tables_for_db
                     RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, top_tables_for_db AS tables
@@ -162,8 +164,15 @@ async def generate_sql_node(state: QueryState):
         if sql.endswith("```"):
             sql = sql[:-3]
             
-        print(f"[DEBUG] Generated SQL Query:\n{sql}\nTarget DB: {target_db}")
-        return {"generated_sql": sql.strip(), "database_id": target_db}
+        target_db = result.get("target_database_id", "")
+        target_db_name = ""
+        for db in available_databases:
+            if db.get("database_id") == target_db:
+                target_db_name = db.get("database_name", target_db)
+                break
+                
+        print(f"[DEBUG] Generated SQL Query:\n{sql}\n")
+        return {"generated_sql": sql.strip(), "database_id": target_db, "database_name": target_db_name}
     except Exception as e:
         print(f"SQL Generation error: {e}")
         return {"validation_error": "I could not find the relevant details or tables to answer this question."}
