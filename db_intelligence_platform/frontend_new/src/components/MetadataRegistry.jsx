@@ -54,15 +54,41 @@ const RF_NODE_STYLES = {
     textAlign: 'center',
     minWidth: '72px',
   },
+  Table: {
+    background: 'linear-gradient(135deg, rgba(234,179,8,0.12), rgba(202,138,4,0.08))',
+    border: '1px solid rgba(234,179,8,0.3)',
+    borderRadius: '8px',
+    color: '#fef08a',
+    fontSize: '10px',
+    fontWeight: '500',
+    padding: '6px 10px',
+    backdropFilter: 'blur(8px)',
+    textAlign: 'center',
+    minWidth: '72px',
+  },
+  Column: {
+    background: 'linear-gradient(135deg, rgba(244,63,94,0.12), rgba(225,29,72,0.08))',
+    border: '1px solid rgba(244,63,94,0.3)',
+    borderRadius: '8px',
+    color: '#fecdd3',
+    fontSize: '10px',
+    fontWeight: '500',
+    padding: '6px 10px',
+    backdropFilter: 'blur(8px)',
+    textAlign: 'center',
+    minWidth: '72px',
+  },
 };
 
 /* ─────────────────────────────────────────────────────────
    Knowledge Graph Panel
-───────────────────────────────────────────────────────── */
+   ───────────────────────────────────────────────────────── */
 function KnowledgeGraphPanel({ refreshKey }) {
   const [rawGraphData, setRawGraphData] = useState({ nodes: [], edges: [] });
   const [graphLoading, setGraphLoading] = useState(true);
   const [showDatabases, setShowDatabases] = useState(true);
+  const [showTables, setShowTables] = useState(true);
+  const [showColumns, setShowColumns] = useState(true);
   const [nodeCount, setNodeCount] = useState(0);
   const [edgeCount, setEdgeCount] = useState(0);
 
@@ -100,13 +126,33 @@ function KnowledgeGraphPanel({ refreshKey }) {
     let filteredNodes = rawGraphData.nodes;
     let filteredEdges = rawGraphData.edges;
 
-    if (!showDatabases) {
-      filteredNodes = filteredNodes.filter((n) => n.type !== 'input');
-      const dbNodeIds = new Set(
-        rawGraphData.nodes.filter((n) => n.type === 'input').map((n) => n.id)
-      );
-      filteredEdges = filteredEdges.filter(
-        (e) => !dbNodeIds.has(e.source) && !dbNodeIds.has(e.target)
+    const excludedTypes = new Set();
+    if (!showDatabases) excludedTypes.add('Database');
+    if (!showTables) excludedTypes.add('Table');
+    if (!showColumns) excludedTypes.add('Column');
+
+    if (excludedTypes.size > 0) {
+      const hiddenNodeIds = new Set();
+      filteredNodes = rawGraphData.nodes.filter((n) => {
+        const labelText = n.data?.label || '';
+        let nodeType = 'Entity';
+        if (labelText.startsWith('[Database]') || n.type === 'input') {
+          nodeType = 'Database';
+        } else if (labelText.startsWith('[Table]')) {
+          nodeType = 'Table';
+        } else if (labelText.startsWith('[Column]')) {
+          nodeType = 'Column';
+        }
+
+        const isHidden = excludedTypes.has(nodeType);
+        if (isHidden) {
+          hiddenNodeIds.add(n.id);
+        }
+        return !isHidden;
+      });
+
+      filteredEdges = rawGraphData.edges.filter(
+        (e) => !hiddenNodeIds.has(e.source) && !hiddenNodeIds.has(e.target)
       );
     }
 
@@ -116,10 +162,22 @@ function KnowledgeGraphPanel({ refreshKey }) {
     setNodes((currentNodes) => {
       currentNodes.forEach((n) => savedPositions.current.set(n.id, n.position));
       return filteredNodes.map((node, index) => {
-        const isDb = node.type === 'input';
+        const labelText = node.data?.label || '';
+        let style = RF_NODE_STYLES.Entity;
+        let isDb = false;
+
+        if (labelText.startsWith('[Database]') || node.type === 'input') {
+          style = RF_NODE_STYLES.Database;
+          isDb = true;
+        } else if (labelText.startsWith('[Table]')) {
+          style = RF_NODE_STYLES.Table;
+        } else if (labelText.startsWith('[Column]')) {
+          style = RF_NODE_STYLES.Column;
+        }
+
         return {
           ...node,
-          style: isDb ? RF_NODE_STYLES.Database : RF_NODE_STYLES.Entity,
+          style,
           position: savedPositions.current.get(node.id) || {
             x: isDb
               ? 300 + (index % 3) * 280
@@ -147,7 +205,7 @@ function KnowledgeGraphPanel({ refreshKey }) {
         markerEnd: { type: 'arrowclosed', color: e.animated ? '#06b6d4' : '#a855f7' },
       }))
     );
-  }, [rawGraphData, showDatabases, setNodes, setEdges]);
+  }, [rawGraphData, showDatabases, showTables, showColumns, setNodes, setEdges]);
 
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge(params, eds)),
@@ -197,6 +255,51 @@ function KnowledgeGraphPanel({ refreshKey }) {
             {showDatabases ? <Eye size={12} /> : <EyeOff size={12} />}
             <span>DB Lineage</span>
           </button>
+          
+          {/* Toggle Table Nodes */}
+          <button
+            type="button"
+            onClick={() => setShowTables(!showTables)}
+            title={showTables ? 'Hide Table nodes' : 'Show Table nodes'}
+            style={{
+              background: showTables ? 'rgba(234,179,8,0.15)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${showTables ? 'rgba(234,179,8,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color: showTables ? '#eab308' : '#64748b',
+              padding: '5px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+            }}
+          >
+            {showTables ? <Eye size={12} /> : <EyeOff size={12} />}
+            <span>Tables</span>
+          </button>
+
+          {/* Toggle Column Nodes */}
+          <button
+            type="button"
+            onClick={() => setShowColumns(!showColumns)}
+            title={showColumns ? 'Hide Column nodes' : 'Show Column nodes'}
+            style={{
+              background: showColumns ? 'rgba(244,63,94,0.15)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${showColumns ? 'rgba(244,63,94,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color: showColumns ? '#f43f5e' : '#64748b',
+              padding: '5px 10px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+            }}
+          >
+            {showColumns ? <Eye size={12} /> : <EyeOff size={12} />}
+            <span>Columns</span>
+          </button>
+
           {/* Refresh Graph */}
           <button
             type="button"
@@ -270,7 +373,13 @@ function KnowledgeGraphPanel({ refreshKey }) {
                 border: '1px solid rgba(255,255,255,0.06)',
                 borderRadius: '8px',
               }}
-              nodeColor={(n) => n.type === 'input' ? '#a855f7' : '#06b6d4'}
+              nodeColor={(n) => {
+                const labelText = n.data?.label || '';
+                if (labelText.startsWith('[Database]') || n.type === 'input') return '#a855f7';
+                if (labelText.startsWith('[Table]')) return '#eab308';
+                if (labelText.startsWith('[Column]')) return '#f43f5e';
+                return '#06b6d4';
+              }}
               maskColor="rgba(0,0,0,0.6)"
             />
             <Background
@@ -287,17 +396,26 @@ function KnowledgeGraphPanel({ refreshKey }) {
         padding: '8px 16px',
         borderTop: '1px solid rgba(255,255,255,0.04)',
         display: 'flex',
+        flexWrap: 'wrap',
         gap: '16px',
         background: 'rgba(0,0,0,0.15)',
         flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
           <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(168,85,247,0.5)', border: '1px solid #a855f7', display: 'inline-block' }} />
-          Database node
+          Database
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
+          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(234,179,8,0.3)', border: '1px solid #eab308', display: 'inline-block' }} />
+          Table
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
+          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(244,63,94,0.3)', border: '1px solid #f43f5e', display: 'inline-block' }} />
+          Column
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
           <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(6,182,212,0.3)', border: '1px solid #06b6d4', display: 'inline-block' }} />
-          Entity node
+          Abstract Entity
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
           <span style={{ width: '18px', height: '2px', background: 'rgba(168,85,247,0.5)', display: 'inline-block', borderRadius: '1px' }} />
