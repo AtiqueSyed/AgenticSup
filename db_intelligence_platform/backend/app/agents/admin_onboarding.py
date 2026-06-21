@@ -510,7 +510,7 @@ async def generate_embeddings_node(state: OnboardingState):
                     print(f"Embedding generation failed for '{text_to_embed}': {embed_err}")
                     embedding = [0.001] * 384
                 
-                doc_id = f"{db_id}_{ent.get('id')}"
+                doc_id = ent.get('id')
                 await es_client.index(
                     index=index_name,
                     id=doc_id,
