@@ -31,19 +31,18 @@ async def extract_schema_node(state: OnboardingState):
             inspector = inspect(conn)
             tables_data = []
             
-            # Identify all non-system schemas
-            schemas_to_check = [None]
-            exclude_schemas = {'SYS', 'SYSTEM', 'XDB', 'CTXSYS', 'MDSYS', 'DBSNMP', 'OUTLN', 'APPQOSSYS', 'DVSYS', 'DVF', 'AUDSYS', 'OJVMSYS', 'GSMADMIN_INTERNAL', 'ORDSYS', 'OLAPSYS', 'WMSYS', 'SYSRAC', 'SYSKM', 'SYSDG', 'SYSBACKUP', 'SYS$UMF', 'REMOTE_SCHEDULER_AGENT', 'DIP', 'GSMCATUSER', 'GSMUSER', 'XS$NULL', 'ANONYMOUS', 'FLOWS_FILES', 'HR', 'OE', 'PM', 'SH', 'IX', 'BI'}
-            
+            # Identify the schema to check: only the default schema for the connection
+            schemas_to_check = []
             try:
-                all_schemas = inspector.get_schema_names()
-                print(f"[DEBUG] Found {len(all_schemas)} total schemas in database.")
-                for s in all_schemas:
-                    if s.upper() not in exclude_schemas and not s.upper().startswith('APEX'):
-                        schemas_to_check.append(s)
-                print(f"[DEBUG] Will scan the following schemas for tables: {schemas_to_check}")
+                default_schema = inspector.default_schema_name
+                if default_schema:
+                    schemas_to_check.append(default_schema)
+                else:
+                    schemas_to_check.append(None)
+                print(f"[DEBUG] Will scan the default schema for tables: {schemas_to_check}")
             except Exception as e:
-                print(f"[ERROR] Could not list all schemas: {e}")
+                print(f"[ERROR] Could not get default schema name: {e}")
+                schemas_to_check = [None]
                 
             seen_tables = set()
             for schema in set(schemas_to_check):
@@ -91,6 +90,30 @@ async def extract_schema_node(state: OnboardingState):
         print(f"[ERROR] Unexpected Error: {e}")
         return {"status": "error", "errors": state.get("errors", []) + [f"Unexpected Error: {str(e)}"]}
 
+async def call_llm_with_retry(client, **kwargs):
+    import openai
+    import asyncio
+    max_retries = 5
+    delay = 5.0
+    for i in range(max_retries):
+        try:
+            return await client.chat.completions.create(**kwargs)
+        except openai.RateLimitError as e:
+            if i == max_retries - 1:
+                raise e
+            print(f"[RATE LIMIT] Hit rate limit. Retrying in {delay} seconds... (Attempt {i+1}/{max_retries})")
+            await asyncio.sleep(delay)
+            delay *= 1.5
+        except Exception as e:
+            if "rate_limit" in str(e).lower() or "limit" in str(e).lower() or "429" in str(e):
+                if i == max_retries - 1:
+                    raise e
+                print(f"[RATE LIMIT] Hit rate limit exception. Retrying in {delay} seconds... (Attempt {i+1}/{max_retries})")
+                await asyncio.sleep(delay)
+                delay *= 1.5
+            else:
+                raise e
+
 import json
 from openai import AsyncOpenAI
 from app.core.config import settings
@@ -110,23 +133,50 @@ async def generate_semantics_node(state: OnboardingState):
     extracted_tables = state["extracted_schema"].get("tables", [])
     semantics = {}
     
-    # We serialize the schema minimally to pass to the LLM
+    # We serialize the schema with sample data to give context to the LLM for column descriptions.
+    # We clean Decimal and date/datetime objects to prevent JSON serialization errors.
+    import decimal
+    import datetime
+    
+    def clean_val(v):
+        if isinstance(v, decimal.Decimal):
+            return float(v) if v % 1 else int(v)
+        elif isinstance(v, (datetime.datetime, datetime.date)):
+            return v.isoformat()
+        return v
+
+    def clean_row(r):
+        return {k: clean_val(v) for k, v in r.items()}
+
     schema_summary = json.dumps([
-        {"table": t["name"], "columns": [c["name"] for c in t["columns"]]} 
+        {
+            "table": t["name"], 
+            "columns": [{"name": c["name"], "type": c["type"]} for c in t["columns"]]
+        } 
         for t in extracted_tables
     ])
     
     prompt = f"""
-    Analyze the following database schema and provide a semantic description for each table and its business purpose.
-    Return ONLY a valid JSON object where keys are table names and values are the string descriptions.
+    Analyze the following database schema and provide a semantic description for each table and a detailed description for each of its columns.
+    
+    Return ONLY a valid JSON object in this exact format:
+    {{
+      "table_name": {{
+        "description": "Detailed description of table and its business purpose",
+        "columns": {{
+          "column_name": "Detailed description of the column, what it represents, and any business rules"
+        }}
+      }}
+    }}
     
     Schema:
     {schema_summary}
     """
     
     try:
-        print("Calling AWS Bedrock LLM to generate table descriptions...")
-        response = await client.chat.completions.create(
+        print("Calling AWS Bedrock LLM to generate table and column descriptions...")
+        response = await call_llm_with_retry(
+            client,
             model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
@@ -179,7 +229,8 @@ async def identify_entities_node(state: OnboardingState):
     
     try:
         print("Calling AWS Bedrock LLM to identify abstract Entities and Relationships...")
-        response = await client.chat.completions.create(
+        response = await call_llm_with_retry(
+            client,
             model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
@@ -246,7 +297,8 @@ async def map_entity_columns_node(state: OnboardingState):
     
     try:
         print("Calling AWS Bedrock LLM to map Entity column keys...")
-        response = await client.chat.completions.create(
+        response = await call_llm_with_retry(
+            client,
             model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
@@ -285,85 +337,111 @@ async def construct_knowledge_graph_node(state: OnboardingState):
     db_name = state.get("database_name", db_id)
     extracted_tables = state.get("extracted_schema", {}).get("tables", [])
     table_schema_dict = {t["name"].upper(): t for t in extracted_tables}
+    semantics = state.get("semantic_descriptions", {})
     
     if neo4j_driver and entities:
         print(f"Connecting to Neo4j and merging {len(entities)} Entities...")
         async with neo4j_driver.session() as session:
-            # Create Database Node
+            # 1. Create Database Node
             await session.run("MERGE (db:Database {id: $id}) SET db.connection_string = $conn_str, db.name = $db_name", id=db_id, conn_str=conn_str, db_name=db_name)
             
-            # Push tables mapping to this entity
+            # 2. Create Entity Nodes and link them to Database
             for ent in entities:
                 ent_id = ent.get("id")
-                mapped_tables = ent.get("mapped_tables", [])
-                entity_keys = ent.get("entity_keys", [])
-                
-                # Create Entity
                 await session.run(
                     "MERGE (e:Entity {id: $e_id}) SET e.name = $e_name, e.description = $desc "
                     "WITH e MATCH (db:Database {id: $db_id}) MERGE (db)-[:CONTAINS]->(e)",
                     e_id=ent_id, e_name=ent_id, desc=ent.get("description", ""), db_id=db_id
                 )
+            
+            # 3. Collect unique tables to merge (excluding any hallucinations not in table_schema_dict)
+            unique_tables = set()
+            for ent in entities:
+                for table_name in ent.get("mapped_tables", []):
+                    if table_name.upper() in table_schema_dict:
+                        unique_tables.add(table_name.upper())
+            
+            # 4. Merge unique Table and Column Nodes
+            for table_name_upper in unique_tables:
+                table_obj = table_schema_dict[table_name_upper]
+                table_name = table_obj["name"]
+                
+                table_semantics = semantics.get(table_name_upper, {}) or semantics.get(table_name, {})
+                table_desc = ""
+                col_descriptions = {}
+                if isinstance(table_semantics, dict):
+                    table_desc = table_semantics.get("description", "")
+                    col_descriptions = table_semantics.get("columns", {})
+                elif isinstance(table_semantics, str):
+                    table_desc = table_semantics
+                
+                # Merge Table Node and link to Database
+                await session.run(
+                    "MERGE (t:Table {id: $t_id}) "
+                    "SET t.name = $t_name, t.description = $t_desc "
+                    "WITH t MATCH (db:Database {id: $db_id}) "
+                    "MERGE (db)-[:HAS_TABLE]->(t)",
+                    t_id=f"{db_id}_{table_name}", t_name=table_name, t_desc=table_desc, db_id=db_id
+                )
+                
+                columns = table_obj.get("columns", [])
+                sample_data = table_obj.get("sample_data", [])
+                
+                # Merge Column Nodes and link to Table
+                for col in columns:
+                    col_name = col["name"]
+                    col_type = col.get("type", "unknown")
+                    col_desc = col_descriptions.get(col_name.upper(), "") or col_descriptions.get(col_name, "")
+                    
+                    # Extract non-null unique sample values (up to 3)
+                    sample_vals = []
+                    for row in sample_data:
+                        val = row.get(col_name)
+                        if val is not None and str(val) not in sample_vals:
+                            sample_vals.append(str(val))
+                    
+                    await session.run(
+                        "MERGE (c:Column {id: $c_id}) "
+                        "SET c.name = $c_name, c.type = $c_type, c.sample_values = $c_samples, c.description = $c_desc, c.is_entity_key = false "
+                        "WITH c MATCH (t:Table {id: $t_id}) "
+                        "MERGE (t)-[:HAS_COLUMN]->(c)",
+                        c_id=f"{db_id}_{table_name}_{col_name}",
+                        c_name=col_name,
+                        c_type=col_type,
+                        c_samples=sample_vals,
+                        c_desc=col_desc,
+                        t_id=f"{db_id}_{table_name}"
+                    )
+            
+            # 5. Create Mapping Relationships (Table -MAPS_TO-> Entity, Column -REPRESENTS-> Entity)
+            for ent in entities:
+                ent_id = ent.get("id")
+                mapped_tables = ent.get("mapped_tables", [])
+                entity_keys = ent.get("entity_keys", [])
                 
                 for table_name in mapped_tables:
                     if table_name.upper() not in table_schema_dict:
-                        print(f"[DEBUG] Dropping hallucinated mapped_table: {table_name}")
                         continue
-                        
+                    
+                    # Link Table to Entity
                     await session.run(
-                        "MERGE (t:Table {id: $t_id}) "
-                        "SET t.name = $t_name "
-                        "WITH t "
-                        "MATCH (db:Database {id: $db_id}) "
-                        "MERGE (db)-[:HAS_TABLE]->(t) "
-                        "WITH t "
+                        "MATCH (t:Table {id: $t_id}) "
                         "MATCH (e:Entity {id: $e_id}) "
                         "MERGE (t)-[:MAPS_TO]->(e)",
-                        t_id=f"{db_id}_{table_name}", t_name=table_name, db_id=db_id, e_id=ent_id
+                        t_id=f"{db_id}_{table_name}", e_id=ent_id
                     )
                     
-                    # Push physical columns and sample values
-                    table_obj = table_schema_dict.get(table_name.upper(), {})
-                    columns = table_obj.get("columns", [])
-                    sample_data = table_obj.get("sample_data", [])
-                    
-                    for col in columns:
-                        col_name = col["name"]
-                        col_type = col.get("type", "unknown")
-                        
-                        # Check if this column is marked as an entity key
-                        is_key = False
-                        for key_obj in entity_keys:
-                            if key_obj.get("table", "").upper() == table_name.upper() and key_obj.get("column", "").upper() == col_name.upper():
-                                is_key = True
-                                break
-                                
-                        # Extract non-null unique sample values for this column (up to 3)
-                        sample_vals = []
-                        for row in sample_data:
-                            val = row.get(col_name)
-                            if val is not None and str(val) not in sample_vals:
-                                sample_vals.append(str(val))
-                                
-                        await session.run(
-                            "MERGE (c:Column {id: $c_id}) "
-                            "SET c.name = $c_name, c.type = $c_type, c.sample_values = $c_samples, c.is_entity_key = $is_key "
-                            "WITH c "
-                            "MATCH (t:Table {id: $t_id}) "
-                            "MERGE (t)-[:HAS_COLUMN]->(c) "
-                            "WITH c "
-                            "MATCH (e:Entity {id: $e_id}) "
-                            "FOREACH (ignoreMe IN CASE WHEN $is_key THEN [1] ELSE [] END | "
-                            "   MERGE (c)-[:REPRESENTS]->(e)"
-                            ")",
-                            c_id=f"{db_id}_{table_name}_{col_name}", 
-                            c_name=col_name, 
-                            c_type=col_type, 
-                            c_samples=sample_vals,
-                            is_key=is_key,
-                            t_id=f"{db_id}_{table_name}",
-                            e_id=ent_id
-                        )
+                    # Link Key Columns to Entity
+                    for key_obj in entity_keys:
+                        if key_obj.get("table", "").upper() == table_name.upper():
+                            col_name = key_obj.get("column", "")
+                            await session.run(
+                                "MATCH (c:Column {id: $c_id}) "
+                                "SET c.is_entity_key = true "
+                                "WITH c MATCH (e:Entity {id: $e_id}) "
+                                "MERGE (c)-[:REPRESENTS]->(e)",
+                                c_id=f"{db_id}_{table_name}_{col_name}", e_id=ent_id
+                            )
             
             # Create Relationships
             print(f"Merging {len(relationships)} Relationships into Neo4j...")

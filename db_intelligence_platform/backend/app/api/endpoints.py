@@ -3,7 +3,7 @@ from pydantic import BaseModel
 import uuid
 from typing import Dict, Any
 import json
-from app.core.database import hz_client
+from app.core.database import hz_client, ORACLE_URL
 
 from app.agents.admin_onboarding import admin_onboarding_app
 from app.agents.user_query import user_query_app
@@ -183,9 +183,8 @@ async def delete_database(database_id: str):
         except Exception:
             pass
             
-    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
     try:
-        engine = create_async_engine(dev_db_str)
+        engine = create_async_engine(ORACLE_URL, connect_args={"timeout": 5})
         async with engine.begin() as conn:
             await conn.execute(text("DELETE FROM onboarded_databases WHERE db_id = :db_id"), {"db_id": database_id})
         await engine.dispose()
@@ -222,9 +221,8 @@ async def clear_knowledge_graph():
         except Exception:
             pass
             
-    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
     try:
-        engine = create_async_engine(dev_db_str)
+        engine = create_async_engine(ORACLE_URL, connect_args={"timeout": 5})
         async with engine.begin() as conn:
             await conn.execute(text("DELETE FROM onboarded_databases"))
         await engine.dispose()

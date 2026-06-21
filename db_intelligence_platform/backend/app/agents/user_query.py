@@ -47,7 +47,8 @@ async def retrieve_context_node(state: QueryState):
                 "k": 2,
                 "num_candidates": 50
             }
-            # Remove db_id filter for global routing
+            if db_id and db_id != "selected-db-id":
+                knn_query["filter"] = {"term": {"database_id": db_id}}
             search_body = {"knn": knn_query}
         except Exception as embed_err:
             print(f"Embedding generation failed: {embed_err}")
@@ -76,17 +77,28 @@ async def retrieve_context_node(state: QueryState):
             # 3. Query Neo4j to find which Database and Tables map to these Entities
             if neo4j_driver and matched_entities:
                 async with neo4j_driver.session() as session:
-                    cypher = """
-                    MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
-                    WHERE e.id IN $matched_entities
-                    OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                    WHERE EXISTS((c)-[:REPRESENTS]->(e)) OR NOT EXISTS((t)-[:HAS_COLUMN]->(:Column)-[:REPRESENTS]->(e))
-                    WITH db, e, t, collect({name: c.name, type: c.type, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
-                    ORDER BY size(columns) DESC
-                    WITH db, e, collect({name: t.name, columns: columns})[0..2] AS top_tables_for_db
-                    RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, top_tables_for_db AS tables
-                    """
-                    neo_res = await session.run(cypher, matched_entities=matched_entities)
+                    if db_id and db_id != "selected-db-id":
+                        cypher = """
+                        MATCH (db:Database {id: $db_id})-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
+                        WHERE e.id IN $matched_entities
+                        OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                        WITH db, e, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                        ORDER BY size(columns) DESC
+                        WITH db, e, collect({name: t.name, columns: columns})[0..2] AS top_tables_for_db
+                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, top_tables_for_db AS tables
+                        """
+                        neo_res = await session.run(cypher, matched_entities=matched_entities, db_id=db_id)
+                    else:
+                        cypher = """
+                        MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
+                        WHERE e.id IN $matched_entities
+                        OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                        WITH db, e, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                        ORDER BY size(columns) DESC
+                        WITH db, e, collect({name: t.name, columns: columns})[0..2] AS top_tables_for_db
+                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, top_tables_for_db AS tables
+                        """
+                        neo_res = await session.run(cypher, matched_entities=matched_entities)
                     records = await neo_res.data()
                     
                     if records:
