@@ -14,7 +14,7 @@ export default function QueryInterface() {
     
     setStatus("loading")
     try {
-      const response = await fetch("http://localhost:8000/api/v1/query", {
+      const response = await fetch("http://localhost:8002/api/v1/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ database_id: "selected-db-id", question })

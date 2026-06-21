@@ -3,7 +3,8 @@ from pydantic import BaseModel
 import uuid
 from typing import Dict, Any
 import json
-from app.core.database import hz_client
+from app.core.database import hz_client, engine
+from app.core.config import settings
 
 from app.agents.admin_onboarding import admin_onboarding_app
 from app.agents.user_query import user_query_app
@@ -39,20 +40,19 @@ async def get_stats():
             
     db_count = 0
     db_names = []
-    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
-    try:
-        from sqlalchemy.ext.asyncio import create_async_engine
-        from sqlalchemy import text
-        engine = create_async_engine(dev_db_str)
-        async with engine.connect() as conn:
-            res = await conn.execute(text("SELECT database_name FROM onboarded_databases"))
-            rows = res.fetchall()
-            if rows:
-                db_names = [r[0] for r in rows if r[0]]
-                db_count = len(db_names)
-        await engine.dispose()
-    except Exception:
-        # Fallback to memory if DB query fails or table isn't created yet
+    if engine:
+        try:
+            from sqlalchemy import text
+            async with engine.connect() as conn:
+                res = await conn.execute(text("SELECT database_name FROM onboarded_databases"))
+                rows = res.fetchall()
+                if rows:
+                    db_names = [r[0] for r in rows if r[0]]
+                    db_count = len(db_names)
+        except Exception:
+            # Fallback to memory if DB query fails or table isn't created yet
+            db_count = len(tasks_status)
+    else:
         db_count = len(tasks_status)
             
     return {
@@ -143,14 +143,12 @@ async def delete_database(database_id: str):
         except Exception:
             pass
             
-    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
-    try:
-        engine = create_async_engine(dev_db_str)
-        async with engine.begin() as conn:
-            await conn.execute(text("DELETE FROM onboarded_databases WHERE db_id = :db_id"), {"db_id": database_id})
-        await engine.dispose()
-    except Exception:
-        pass
+    if engine:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("DELETE FROM onboarded_databases WHERE db_id = :db_id"), {"db_id": database_id})
+        except Exception:
+            pass
         
     tasks_status.pop(database_id, None)
     mock_db_connections.pop(database_id, None)
@@ -176,14 +174,12 @@ async def clear_knowledge_graph():
         except Exception:
             pass
             
-    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
-    try:
-        engine = create_async_engine(dev_db_str)
-        async with engine.begin() as conn:
-            await conn.execute(text("DELETE FROM onboarded_databases"))
-        await engine.dispose()
-    except Exception:
-        pass
+    if engine:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("DELETE FROM onboarded_databases"))
+        except Exception:
+            pass
         
     tasks_status.clear()
     mock_db_connections.clear()
@@ -205,8 +201,9 @@ async def ask_question(request: QueryRequest):
     if not conn_str and mock_db_connections:
         conn_str = list(mock_db_connections.values())[-1]
     elif not conn_str:
-        # Fallback to local Oracle (using host.docker.internal to reach Windows host from inside Docker container)
-        conn_str = "oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1"
+        # Fallback to local Oracle config from settings
+        user_escaped = settings.ORACLE_USERNAME.replace("#", "%23")
+        conn_str = f"oracle+oracledb_async://{user_escaped}:{settings.ORACLE_PASSWORD}@{settings.ORACLE_HOST}:{settings.ORACLE_PORT}/?service_name={settings.ORACLE_SERVICE_NAME}"
 
     # Hazelcast Chat Session Caching
     chat_history = []

@@ -262,7 +262,8 @@ from sqlalchemy import text
 async def register_metadata_node(state: OnboardingState):
     """Saves all gathered metadata into the centralized registry (Oracle DB)."""
     print("----- [NODE: register_metadata] Started -----")
-    dev_db_str = "oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XE"
+    user_escaped = settings.ORACLE_USERNAME.replace("#", "%23")
+    dev_db_str = f"oracle+oracledb_async://{user_escaped}:{settings.ORACLE_PASSWORD}@{settings.ORACLE_HOST}:{settings.ORACLE_PORT}/?service_name={settings.ORACLE_SERVICE_NAME}"
     try:
         engine = create_async_engine(dev_db_str)
         async with engine.begin() as conn:

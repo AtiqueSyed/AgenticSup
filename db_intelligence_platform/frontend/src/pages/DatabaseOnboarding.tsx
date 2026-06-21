@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
 export default function DatabaseOnboarding() {
-  const [connectionString, setConnectionString] = useState("oracle+oracledb_async://agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1521/?service_name=XEPDB1")
+  const [connectionString, setConnectionString] = useState("oracle+oracledb_async://C%23%23agenticsupervisor_developer:agenticsupervisor@host.docker.internal:1522/?service_name=XE")
   const [dbName, setDbName] = useState("")
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
 
@@ -11,7 +11,7 @@ export default function DatabaseOnboarding() {
     e.preventDefault()
     setStatus("loading")
     try {
-      const response = await fetch("http://localhost:8000/api/v1/onboard", {
+      const response = await fetch("http://localhost:8002/api/v1/onboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ connection_string: connectionString, database_name: dbName })

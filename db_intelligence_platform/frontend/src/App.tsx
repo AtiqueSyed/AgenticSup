@@ -34,7 +34,7 @@ function Dashboard() {
   const [showDbNames, setShowDbNames] = useState(false)
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/stats")
+    fetch("http://localhost:8002/api/v1/stats")
       .then(res => res.json())
       .then(data => setStats(data))
       .catch(console.error)

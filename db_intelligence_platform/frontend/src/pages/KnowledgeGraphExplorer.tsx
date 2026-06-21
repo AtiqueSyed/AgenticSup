@@ -34,7 +34,7 @@ export default function KnowledgeGraphExplorer() {
   useEffect(() => {
     const fetchGraph = async () => {
       try {
-        const response = await fetch("http://localhost:8000/api/v1/graph");
+        const response = await fetch("http://localhost:8002/api/v1/graph");
         const data = await response.json();
         setRawGraphData(data);
       } catch (err) {

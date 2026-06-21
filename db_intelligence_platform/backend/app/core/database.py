@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 # Assuming thin client mode for oracledb
 ORACLE_DSN = f"{settings.ORACLE_HOST}:{settings.ORACLE_PORT}/{settings.ORACLE_SERVICE_NAME}"
 # We're using oracledb async support with SQLAlchemy 2.0
-ORACLE_URL = f"oracle+oracledb_async://{settings.ORACLE_USERNAME}:{settings.ORACLE_PASSWORD}@{ORACLE_DSN}"
+user_escaped = settings.ORACLE_USERNAME.replace("#", "%23")
+ORACLE_URL = f"oracle+oracledb_async://{user_escaped}:{settings.ORACLE_PASSWORD}@{ORACLE_DSN}"
 
 try:
     engine = create_async_engine(ORACLE_URL, echo=False)
