@@ -20,6 +20,7 @@ services:
       - NEO4J_URI=bolt://neo4j:7687
       - ELASTICSEARCH_URL=http://elasticsearch:9200
       - HAZELCAST_HOST=hazelcast
+      - ORACLE_HOST=host.docker.internal
     depends_on:
       - neo4j
       - elasticsearch

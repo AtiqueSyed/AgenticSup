@@ -158,47 +158,66 @@ from sqlalchemy import text
 
 @router.delete("/onboard/{database_id}")
 async def delete_database(database_id: str):
-    """Removes a database and its trace from the Knowledge Graph"""
+    """Removes a database and its full trace from the Knowledge Graph"""
     if neo4j_driver:
         try:
             async with neo4j_driver.session() as session:
-                cypher = """
-                MATCH (db:Database {id: $db_id})
-                OPTIONAL MATCH (db)-[:HAS_TABLE]->(t:Table)
-                OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                OPTIONAL MATCH (db)-[:CONTAINS]->(e:Entity)
-                DETACH DELETE db, t, c, e
-                """
-                await session.run(cypher, db_id=database_id)
-        except Exception:
-            pass
-            
+                # Step 1: Delete Table + Column nodes owned exclusively by this DB
+                await session.run("""
+                    MATCH (db:Database {id: $db_id})-[:HAS_TABLE]->(t:Table)
+                    OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                    DETACH DELETE t, c
+                """, db_id=database_id)
+
+                # Step 2: Remove the CONTAINS edges from this DB to Entities
+                await session.run("""
+                    MATCH (db:Database {id: $db_id})-[r:CONTAINS]->(e:Entity)
+                    DELETE r
+                """, db_id=database_id)
+
+                # Step 3: Delete orphaned Entity nodes (no longer CONTAINS-linked to any DB)
+                await session.run("""
+                    MATCH (e:Entity)
+                    WHERE NOT (e)<-[:CONTAINS]-()
+                    DETACH DELETE e
+                """)
+
+                # Step 4: Delete the Database node itself
+                await session.run("""
+                    MATCH (db:Database {id: $db_id})
+                    DETACH DELETE db
+                """, db_id=database_id)
+        except Exception as e:
+            print(f"[Neo4j Delete Error] {e}")
+
     if es_client:
+        # Delete entity embeddings for this database
         try:
             await es_client.delete_by_query(
                 index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}entities",
-                query={"match": {"database_id": database_id}},
+                query={"term": {"database_id": database_id}},
                 ignore_unavailable=True
             )
-        except Exception:
-            pass
-            
-    try:
-        engine = create_async_engine(ORACLE_URL, connect_args={"timeout": 5})
-        async with engine.begin() as conn:
-            await conn.execute(text("DELETE FROM onboarded_databases WHERE db_id = :db_id"), {"db_id": database_id})
-        await engine.dispose()
-    except Exception:
-        pass
-        
+        except Exception as e:
+            print(f"[ES entities Delete Error] {e}")
+        # Delete table semantic entries for this database
+        try:
+            await es_client.delete_by_query(
+                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                query={"term": {"database_id": database_id}},
+                ignore_unavailable=True
+            )
+        except Exception as e:
+            print(f"[ES tables Delete Error] {e}")
+
     tasks_status.pop(database_id, None)
     mock_db_connections.pop(database_id, None)
-    
+
     registry = read_registry()
     if database_id in registry:
         del registry[database_id]
         write_registry(registry)
-        
+
     return {"status": "deleted", "database_id": database_id}
 
 @router.delete("/graph/clear")

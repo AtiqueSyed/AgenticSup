@@ -133,7 +133,6 @@ async def generate_semantics_node(state: OnboardingState):
     extracted_tables = state["extracted_schema"].get("tables", [])
     semantics = {}
     
-    # We serialize the schema with sample data to give context to the LLM for column descriptions.
     # We clean Decimal and date/datetime objects to prevent JSON serialization errors.
     import decimal
     import datetime
@@ -148,46 +147,56 @@ async def generate_semantics_node(state: OnboardingState):
     def clean_row(r):
         return {k: clean_val(v) for k, v in r.items()}
 
-    schema_summary = json.dumps([
-        {
-            "table": t["name"], 
-            "columns": [{"name": c["name"], "type": c["type"]} for c in t["columns"]]
-        } 
-        for t in extracted_tables
-    ])
-    
-    prompt = f"""
-    Analyze the following database schema and provide a semantic description for each table and a detailed description for each of its columns.
-    
-    Return ONLY a valid JSON object in this exact format:
-    {{
-      "table_name": {{
-        "description": "Detailed description of table and its business purpose",
-        "columns": {{
-          "column_name": "Detailed description of the column, what it represents, and any business rules"
+    for t in extracted_tables:
+        table_name = t["name"]
+        columns = t["columns"]
+        # Limit sample data to 2 rows to minimize tokens and ensure we fit within Rate Limits
+        sample_data = [clean_row(r) for r in t.get("sample_data", [])[:2]]
+        
+        table_summary = {
+            "table": table_name,
+            "columns": [{"name": c["name"], "type": c["type"]} for c in columns],
+            "sample_rows": sample_data
+        }
+        
+        prompt = f"""
+        Analyze the following database table and its sample rows, and provide:
+        1. A semantic description of the table and its business purpose.
+        2. A detailed description for each of its columns based on their names, types, and actual values in the sample rows. Identify what business codes, metrics, dimensions, or foreign keys they represent.
+        
+        Table details:
+        {json.dumps(table_summary, indent=2)}
+        
+        Return ONLY a valid JSON object in this exact format:
+        {{
+          "description": "Detailed description of table and its business purpose",
+          "columns": {{
+            "column_name": "Detailed description of the column, what it represents, and any business rules"
+          }}
         }}
-      }}
-    }}
-    
-    Schema:
-    {schema_summary}
-    """
-    
-    try:
-        print("Calling AWS Bedrock LLM to generate table and column descriptions...")
-        response = await call_llm_with_retry(
-            client,
-            model=settings.DEFAULT_LLM_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-        content = response.choices[0].message.content
-        semantics = json.loads(content)
-        print("Success! Semantics generated.")
-        return {"status": "generated_semantics", "semantic_descriptions": semantics}
-    except Exception as e:
-        print(f"Error calling LLM: {e}")
-        return {"status": "error", "errors": state.get("errors", []) + [f"LLM Semantics Error: {str(e)}"]}
+        """
+        
+        try:
+            print(f"Calling LLM to generate semantics for table {table_name}...")
+            response = await call_llm_with_retry(
+                client,
+                model=settings.DEFAULT_LLM_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            content = response.choices[0].message.content
+            table_semantics = json.loads(content)
+            semantics[table_name.upper()] = table_semantics
+            print(f"Success! Semantics generated for {table_name}.")
+        except Exception as e:
+            print(f"Error calling LLM for table {table_name}: {e}")
+            # Fallback
+            semantics[table_name.upper()] = {
+                "description": f"Table {table_name}",
+                "columns": {c["name"]: f"Column {c['name']} of type {c['type']}" for c in columns}
+            }
+            
+    return {"status": "generated_semantics", "semantic_descriptions": semantics}
 
 async def identify_entities_node(state: OnboardingState):
     """Uses LLM to identify business entities and relationships from the schema."""
@@ -354,12 +363,8 @@ async def construct_knowledge_graph_node(state: OnboardingState):
                     e_id=ent_id, e_name=ent_id, desc=ent.get("description", ""), db_id=db_id
                 )
             
-            # 3. Collect unique tables to merge (excluding any hallucinations not in table_schema_dict)
-            unique_tables = set()
-            for ent in entities:
-                for table_name in ent.get("mapped_tables", []):
-                    if table_name.upper() in table_schema_dict:
-                        unique_tables.add(table_name.upper())
+            # 3. Collect unique tables to merge (all extracted tables from the schema to ensure completeness)
+            unique_tables = set(table_schema_dict.keys())
             
             # 4. Merge unique Table and Column Nodes
             for table_name_upper in unique_tables:

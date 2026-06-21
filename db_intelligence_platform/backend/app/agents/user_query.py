@@ -75,32 +75,43 @@ async def retrieve_context_node(state: QueryState):
                 print(f"[DEBUG] Matched Entities from ES: {matched_entities}")
                 
             # 3. Query Neo4j to find which Database and Tables map to these Entities
-            if neo4j_driver and matched_entities:
+            if neo4j_driver:
                 async with neo4j_driver.session() as session:
                     if db_id and db_id != "selected-db-id":
                         cypher = """
-                        MATCH (db:Database {id: $db_id})-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
-                        WHERE e.id IN $matched_entities
+                        MATCH (db:Database {id: $db_id})-[:HAS_TABLE]->(t:Table)
                         OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                        WITH db, e, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
-                        ORDER BY size(columns) DESC
-                        WITH db, e, collect({name: t.name, columns: columns})[0..2] AS top_tables_for_db
-                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, top_tables_for_db AS tables
+                        WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
                         """
-                        neo_res = await session.run(cypher, matched_entities=matched_entities, db_id=db_id)
-                    else:
+                        neo_res = await session.run(cypher, db_id=db_id)
+                    elif matched_entities:
                         cypher = """
                         MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
                         WHERE e.id IN $matched_entities
+                        WITH DISTINCT db
+                        MATCH (db)-[:HAS_TABLE]->(t:Table)
                         OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                        WITH db, e, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
-                        ORDER BY size(columns) DESC
-                        WITH db, e, collect({name: t.name, columns: columns})[0..2] AS top_tables_for_db
-                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, top_tables_for_db AS tables
+                        WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
                         """
                         neo_res = await session.run(cypher, matched_entities=matched_entities)
-                    records = await neo_res.data()
+                    else:
+                        neo_res = None
+                        
+                    records = await neo_res.data() if neo_res else []
                     
+                    if not records:
+                        print("[DEBUG] Fetching all databases schema as fallback...")
+                        cypher_all = """
+                        MATCH (db:Database)-[:HAS_TABLE]->(t:Table)
+                        OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                        WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
+                        """
+                        neo_res_all = await session.run(cypher_all)
+                        records = await neo_res_all.data()
+                        
                     if records:
                         context["available_databases"] = records
                         context["relationships"] = [{"source": "Entity", "target": "Table", "type": "MAPS_TO"}]
@@ -109,7 +120,7 @@ async def retrieve_context_node(state: QueryState):
                         print(f"[DEBUG] Autonomously retrieved schema for {len(records)} Databases:\n{json.dumps(records, indent=2)}")
                         return {"relevant_context": context}
                     else:
-                        print(f"[DEBUG] Neo4j found no linked databases for entities: {matched_entities}")
+                        print(f"[DEBUG] Neo4j found no databases.")
                         
         print(f"[DEBUG] Context successfully assembled with schemas.")
     except Exception as e:
