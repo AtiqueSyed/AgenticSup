@@ -323,20 +323,56 @@ async def ask_question(request: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 from app.core.database import neo4j_driver
+from typing import Optional as OptionalType
 
 @router.get("/graph")
-async def get_knowledge_graph():
-    """Returns the Neo4j nodes and edges for the frontend visualization."""
+async def get_knowledge_graph(database_id: OptionalType[str] = None):
+    """Returns the Neo4j nodes and edges for the frontend visualization.
+    
+    If `database_id` is provided, only returns the nodes and relationships
+    scoped to that specific onboarded database.
+    """
     if not neo4j_driver:
         return {"nodes": [], "edges": []}
         
     async with neo4j_driver.session() as session:
-        # Fetch all Entities and Databases
-        nodes_res = await session.run("MATCH (n) WHERE n:Entity OR n:Database RETURN n.id AS id, coalesce(n.label, n.name, n.id) AS label, labels(n)[0] AS type")
+        if database_id:
+            # Scoped query: only the target Database node and its contained Entities
+            nodes_res = await session.run(
+                """
+                MATCH (db:Database {id: $db_id})
+                OPTIONAL MATCH (db)-[:CONTAINS]->(e:Entity)
+                WITH collect(db) + collect(e) AS all_nodes
+                UNWIND all_nodes AS n
+                RETURN n.id AS id,
+                       coalesce(n.label, n.name, n.id) AS label,
+                       labels(n)[0] AS type
+                """,
+                db_id=database_id
+            )
+            # Only edges between nodes that belong to this database
+            edges_res = await session.run(
+                """
+                MATCH (db:Database {id: $db_id})
+                OPTIONAL MATCH (db)-[:CONTAINS]->(e:Entity)
+                WITH collect(db.id) + collect(e.id) AS node_ids
+                MATCH (src)-[r]->(tgt)
+                WHERE src.id IN node_ids AND tgt.id IN node_ids
+                RETURN src.id AS source, tgt.id AS target, type(r) AS type
+                """,
+                db_id=database_id
+            )
+        else:
+            # Global query: all Entities and Databases
+            nodes_res = await session.run(
+                "MATCH (n) WHERE n:Entity OR n:Database "
+                "RETURN n.id AS id, coalesce(n.label, n.name, n.id) AS label, labels(n)[0] AS type"
+            )
+            edges_res = await session.run(
+                "MATCH (src)-[r]->(tgt) RETURN src.id AS source, tgt.id AS target, type(r) AS type"
+            )
+
         raw_nodes = await nodes_res.data()
-        
-        # Fetch all relationships
-        edges_res = await session.run("MATCH (src)-[r]->(tgt) RETURN src.id AS source, tgt.id AS target, type(r) AS type")
         edges = await edges_res.data()
         
     return {

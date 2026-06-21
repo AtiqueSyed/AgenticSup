@@ -30,18 +30,16 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
   const [sourceType, setSourceType] = useState('structured'); // 'structured' or 'unstructured'
   
   // Structured form inputs
-  const [dbName, setDbName] = useState('CIMS');
-  const [connUrl, setConnUrl] = useState('oracle+oracledb_async://C%23%23agenticsupervisor_cims:agenticsupervisor@localhost:1522/?service_name=XEPDB1');
-  const [port, setPort] = useState('1522');
+  const [dbName, setDbName] = useState('');
+  const [connUrl, setConnUrl] = useState('');
+  const [port, setPort] = useState('');
   
   // Unstructured form inputs
   const [unstructuredEngine, setUnstructuredEngine] = useState('elastic'); // 'elastic' or 'mongo'
   const [nosqlUrl, setNosqlUrl] = useState('http://localhost:9200');
   const [uploadedFile, setUploadedFile] = useState(null);
   
-  const [dbDesc, setDbDesc] = useState(
-    'CIMS database tracks per-bank non-performing asset ledgers and appraisals for supervisory reporting.'
-  );
+  const [dbDesc, setDbDesc] = useState('');
 
   // Pipeline execution state
   const [pipelineStatus, setPipelineStatus] = useState('idle'); // 'idle' | 'running' | 'completed' | 'failed'
@@ -52,6 +50,8 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [isGraphFullscreen, setIsGraphFullscreen] = useState(false);
+  const [currentDbId, setCurrentDbId] = useState(null); // tracks the DB being onboarded
+  const [isTerminalMinimized, setIsTerminalMinimized] = useState(true); // start collapsed
   const terminalEndRef = useRef(null);
   const pollIntervalRef = useRef(null);
 
@@ -133,9 +133,11 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
     });
   }, []);
 
-  const fetchGraphData = useCallback(async () => {
+  const fetchGraphData = useCallback(async (dbId) => {
     try {
-      const response = await fetch('/api/v1/graph');
+      // Scope graph to this specific database if an ID is provided
+      const url = dbId ? `/api/v1/graph?database_id=${dbId}` : '/api/v1/graph';
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch graph data');
       const data = await response.json();
       
@@ -201,6 +203,7 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
 
       const initData = await response.json();
       const dbId = initData.database_id;
+      setCurrentDbId(dbId); // remember which DB we're onboarding
       addLog(`✅ [SUCCESS] Socket established. Database target ID resolved: ${dbId}`);
       addLog('🛰️ Initiating background introspection workflow (LangGraph thread)...');
       
@@ -240,7 +243,7 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
             addLog('⚡ Generating FastEmbed small vector embeddings for entities and pushing to Elasticsearch...');
             addLog('✅ [SUCCESS] Knowledge Graph and Vector store synchronized successfully.');
             setPipelineStatus('completed');
-            fetchGraphData();
+            fetchGraphData(dbId); // pass dbId to scope graph to this DB only
           } else if (currentStatus.startsWith('failed')) {
             clearInterval(pollIntervalRef.current);
             addLog(`❌ [ERROR] Onboarding failed: ${currentStatus}`);
@@ -609,8 +612,13 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
       </main>
 
       {/* Execution Trace Terminal Console (Full Width at Bottom) */}
-      <footer className="ace-terminal-footer">
-        <div className="terminal-header flex-center">
+      <footer className={`ace-terminal-footer ${isTerminalMinimized ? 'terminal-minimized' : ''}`}>
+        <div
+          className="terminal-header flex-center"
+          onClick={() => setIsTerminalMinimized(prev => !prev)}
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          title={isTerminalMinimized ? 'Expand terminal' : 'Minimize terminal'}
+        >
           <div className="terminal-actions flex-center">
             <span className="dot dot-red"></span>
             <span className="dot dot-yellow"></span>
@@ -620,37 +628,64 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
             <Terminal size={12} className="title-icon" />
             <span>ace-agent-executor:~ - Bash Shell (ReAct loop logs)</span>
           </span>
-          <div className="terminal-status-light flex-center">
-            <span className={`status-dot ${pipelineStatus}`}></span>
-            <span className="status-label">{pipelineStatus.toUpperCase()}</span>
+          <div className="terminal-header-right flex-center" style={{ marginLeft: 'auto', gap: '10px' }}>
+            <div className="terminal-status-light flex-center">
+              <span className={`status-dot ${pipelineStatus}`}></span>
+              <span className="status-label">{pipelineStatus.toUpperCase()}</span>
+            </div>
+            <button
+              type="button"
+              className="terminal-toggle-btn flex-center"
+              onClick={(e) => { e.stopPropagation(); setIsTerminalMinimized(prev => !prev); }}
+              title={isTerminalMinimized ? 'Maximize terminal' : 'Minimize terminal'}
+              style={{
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '4px',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                padding: '3px 7px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '11px',
+                transition: 'background 0.15s'
+              }}
+            >
+              {isTerminalMinimized
+                ? <><Maximize2 size={11} /><span>Expand</span></>
+                : <><Minimize2 size={11} /><span>Minimize</span></>}
+            </button>
           </div>
         </div>
 
-        <div className="terminal-body scrollbar-custom">
-          {logs.length === 0 ? (
-            <div className="terminal-empty flex-center">
-              <span className="empty-text">Terminal idle. Click "Run Onboarding Sequence" to view agent execution traces...</span>
-            </div>
-          ) : (
-            <div className="terminal-logs-wrapper">
-              {logs.map((log, index) => {
-                let logClass = '';
-                if (log.includes('[SUCCESS]')) logClass = 'success-log';
-                else if (log.includes('🔍 Action:')) logClass = 'action-log';
-                else if (log.includes('⚙️ Mode')) logClass = 'mode-log';
-                else if (log.includes('📌 Entity')) logClass = 'entity-log';
-                else if (log.includes('[ERROR]')) logClass = 'text-danger';
-                
-                return (
-                  <div key={index} className={`terminal-log-line ${logClass}`}>
-                    {log}
-                  </div>
-                );
-              })}
-              <div ref={terminalEndRef} />
-            </div>
-          )}
-        </div>
+        {!isTerminalMinimized && (
+          <div className="terminal-body scrollbar-custom">
+            {logs.length === 0 ? (
+              <div className="terminal-empty flex-center">
+                <span className="empty-text">Terminal idle. Click "Run Onboarding Sequence" to view agent execution traces...</span>
+              </div>
+            ) : (
+              <div className="terminal-logs-wrapper">
+                {logs.map((log, index) => {
+                  let logClass = '';
+                  if (log.includes('[SUCCESS]')) logClass = 'success-log';
+                  else if (log.includes('🔍 Action:')) logClass = 'action-log';
+                  else if (log.includes('⚙️ Mode')) logClass = 'mode-log';
+                  else if (log.includes('📌 Entity')) logClass = 'entity-log';
+                  else if (log.includes('[ERROR]')) logClass = 'text-danger';
+                  
+                  return (
+                    <div key={index} className={`terminal-log-line ${logClass}`}>
+                      {log}
+                    </div>
+                  );
+                })}
+                <div ref={terminalEndRef} />
+              </div>
+            )}
+          </div>
+        )}
       </footer>
 
       {/* Fullscreen Graph Overlay Modal */}
