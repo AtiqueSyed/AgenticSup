@@ -22,6 +22,14 @@ export default function QueryInterface() {
   const [databases, setDatabases] = useState<DatabaseMeta[]>([])
   const [errorMessage, setErrorMessage] = useState<string>(() => sessionStorage.getItem("query_error") || "")
 
+  // If the user navigates away or refreshes during a fetch, the state might get stuck as 'loading'. 
+  // We cannot resume an aborted fetch on mount, so we must safely reset it.
+  useEffect(() => {
+    if (status === "loading") {
+      setStatus("idle")
+    }
+  }, [])
+
   useEffect(() => {
     sessionStorage.setItem("query_question", question)
     sessionStorage.setItem("query_status", status)
