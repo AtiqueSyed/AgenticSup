@@ -87,20 +87,24 @@ function KnowledgeGraphPanel({ refreshKey }) {
   const [rawGraphData, setRawGraphData] = useState({ nodes: [], edges: [] });
   const [graphLoading, setGraphLoading] = useState(true);
   const [showDatabases, setShowDatabases] = useState(true);
-  const [showTables, setShowTables] = useState(true);
-  const [showColumns, setShowColumns] = useState(true);
+  const [showTables, setShowTables] = useState(false);
+  const [showColumns, setShowColumns] = useState(false);
   const [nodeCount, setNodeCount] = useState(0);
   const [edgeCount, setEdgeCount] = useState(0);
 
   const [nodes, setNodes, onNodesChangeCore] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const savedPositions = useRef(new Map());
+  const draggedNodes = useRef(new Set());
 
   const onNodesChange = useCallback((changes) => {
     onNodesChangeCore(changes);
     changes.forEach((c) => {
       if (c.type === 'position' && c.position) {
-        savedPositions.current.set(c.id, c.position);
+        if (c.dragging || draggedNodes.current.has(c.id)) {
+          savedPositions.current.set(c.id, c.position);
+          draggedNodes.current.add(c.id);
+        }
       }
     });
   }, [onNodesChangeCore]);
@@ -110,6 +114,8 @@ function KnowledgeGraphPanel({ refreshKey }) {
     try {
       const response = await fetch('/api/v1/graph');
       const data = await response.json();
+      savedPositions.current.clear();
+      draggedNodes.current.clear();
       setRawGraphData(data);
     } catch (err) {
       console.error('Failed to fetch graph:', err);
@@ -161,31 +167,62 @@ function KnowledgeGraphPanel({ refreshKey }) {
 
     setNodes((currentNodes) => {
       currentNodes.forEach((n) => savedPositions.current.set(n.id, n.position));
-      return filteredNodes.map((node, index) => {
+      
+      const dbNodes = filteredNodes.filter(n => n.type === 'input' || n.data?.label?.startsWith('[Database]'));
+      const entityNodes = filteredNodes.filter(n => n.data?.label?.startsWith('[Entity]') || (!n.data?.label?.startsWith('[Database]') && !n.data?.label?.startsWith('[Table]') && !n.data?.label?.startsWith('[Column]') && n.type !== 'input'));
+      const tableNodes = filteredNodes.filter(n => n.data?.label?.startsWith('[Table]'));
+      const columnNodes = filteredNodes.filter(n => n.data?.label?.startsWith('[Column]'));
+
+      const entityColumns = 6;
+      const entityRows = Math.ceil(entityNodes.length / entityColumns) || 1;
+      
+      const tableColumns = 5;
+      const tableRows = Math.ceil(tableNodes.length / tableColumns) || 1;
+
+      const dbStartY = 40;
+      const entityStartY = 200;
+      const tableStartY = entityStartY + entityRows * 130;
+      const columnStartY = tableStartY + (showTables ? tableRows * 130 : 0);
+
+      let dbCount = 0;
+      let entityCount = 0;
+      let tableCount = 0;
+      let columnCount = 0;
+
+      return filteredNodes.map((node) => {
         const labelText = node.data?.label || '';
         let style = RF_NODE_STYLES.Entity;
         let isDb = false;
+        let x = 0;
+        let y = 160;
 
         if (labelText.startsWith('[Database]') || node.type === 'input') {
           style = RF_NODE_STYLES.Database;
           isDb = true;
+          x = 300 + (dbCount % 3) * 320;
+          y = dbStartY;
+          dbCount++;
         } else if (labelText.startsWith('[Table]')) {
           style = RF_NODE_STYLES.Table;
+          x = (tableCount % tableColumns) * 240;
+          y = tableStartY + Math.floor(tableCount / tableColumns) * 130;
+          tableCount++;
         } else if (labelText.startsWith('[Column]')) {
           style = RF_NODE_STYLES.Column;
+          x = (columnCount % 6) * 180;
+          y = columnStartY + Math.floor(columnCount / 6) * 130;
+          columnCount++;
+        } else {
+          style = RF_NODE_STYLES.Entity;
+          x = (entityCount % entityColumns) * 220;
+          y = entityStartY + Math.floor(entityCount / entityColumns) * 130;
+          entityCount++;
         }
 
         return {
           ...node,
           style,
-          position: savedPositions.current.get(node.id) || {
-            x: isDb
-              ? 300 + (index % 3) * 280
-              : (index % 6) * 180,
-            y: isDb
-              ? 40
-              : 160 + Math.floor(index / 6) * 130,
-          },
+          position: savedPositions.current.get(node.id) || { x, y },
         };
       });
     });
@@ -441,6 +478,41 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
   const [graphRefreshKey, setGraphRefreshKey] = useState(0);
   const [deleteToast, setDeleteToast] = useState(null);
 
+  const [leftWidth, setLeftWidth] = useState(550);
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef(null);
+
+  const handleMouseDown = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e) => {
+      if (containerRef.current) {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const newWidth = e.clientX - containerRect.left;
+        const minWidth = 250;
+        const maxWidth = containerRect.width - 250;
+        setLeftWidth(Math.max(minWidth, Math.min(newWidth, maxWidth)));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
   useEffect(() => {
     fetchStats();
   }, []);
@@ -635,7 +707,17 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
       </div>
 
       {/* ── Split Pane: Registry Table (left) | Knowledge Graph (right) ── */}
-      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', overflow: 'hidden', gap: '1px', background: 'rgba(255,255,255,0.04)' }}>
+      <div
+        ref={containerRef}
+        style={{
+          flex: 1,
+          display: 'grid',
+          gridTemplateColumns: `${leftWidth}px 4px 1fr`,
+          overflow: 'hidden',
+          background: 'rgba(255,255,255,0.04)',
+          position: 'relative'
+        }}
+      >
 
         {/* LEFT: Registered Databases Table */}
         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'rgba(10,14,20,0.95)' }}>
@@ -772,6 +854,21 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
             )}
           </div>
         </div>
+
+        {/* Divider / Splitter bar */}
+        <div
+          onMouseDown={handleMouseDown}
+          style={{
+            width: '4px',
+            cursor: 'col-resize',
+            background: isDragging ? '#a855f7' : 'rgba(255,255,255,0.08)',
+            transition: 'background 0.2s',
+            zIndex: 10,
+            position: 'relative',
+          }}
+          onMouseEnter={(e) => { if (!isDragging) e.currentTarget.style.background = 'rgba(168,85,247,0.5)'; }}
+          onMouseLeave={(e) => { if (!isDragging) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+        />
 
         {/* RIGHT: Knowledge Graph Panel */}
         <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'rgba(6,9,13,0.98)' }}>
