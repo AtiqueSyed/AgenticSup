@@ -13,10 +13,55 @@ class QueryState(TypedDict):
     synthesized_answer: Optional[str]
     recommended_visualizations: Optional[Dict[str, Any]]
     iterations: int
+    sub_questions: Optional[List[str]]
 
-def parse_question_node(state: QueryState):
-    """Initial intent parsing of the user question."""
-    return {"iterations": state.get("iterations", 0)}
+async def decompose_query_node(state: QueryState):
+    """Uses LLM to decompose a complex business question into simpler atomic sub-questions."""
+    print("----- [QUERY NODE: decompose_query] Started -----")
+    from openai import AsyncOpenAI
+    from app.core.config import settings
+    import json
+    
+    client = AsyncOpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        base_url=settings.OPENAI_BASE_URL
+    )
+    
+    prompt = f"""
+    You are an expert Data Architect. Your task is to take a complex user question and break it down into an array of simple, atomic sub-questions.
+    These sub-questions will be used to independently search our vector database for relevant business entities and tables.
+    
+    CRITICAL INSTRUCTIONS:
+    1. If the question is already simple, return it EXACTLY as it is, inside a single-element array.
+    2. DO NOT generate multiple variations, rephrasings, or synonymous versions of the same question. 
+    3. ONLY break the question down if it spans multiple completely distinct metrics or areas.
+    
+    EXAMPLES:
+    Input: "What is the count of inspections for Bank 1?"
+    Output: {{ "sub_questions": ["What is the count of inspections for Bank 1?"] }}
+    
+    Input: "Show me all complaints and the average inspection score for Bank 1"
+    Output: {{ "sub_questions": ["Show me all complaints for Bank 1", "What is the average inspection score for Bank 1?"] }}
+    
+    User Question: "{state['question']}"
+    
+    Return ONLY a valid JSON object in this exact format.
+    """
+    
+    try:
+        response = await client.chat.completions.create(
+            model=settings.DEFAULT_LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        result = json.loads(content)
+        sub_questions = result.get("sub_questions", [state["question"]])
+        print(f"[DEBUG] Decomposed query into {len(sub_questions)} sub-questions: {sub_questions}")
+        return {"sub_questions": sub_questions, "iterations": state.get("iterations", 0)}
+    except Exception as e:
+        print(f"[ERROR] Decomposition failed: {e}")
+        return {"sub_questions": [state["question"]], "iterations": state.get("iterations", 0)}
 
 async def retrieve_context_node(state: QueryState):
     """Retrieves relevant schema, entities from Neo4j, and embeddings from Elasticsearch."""
@@ -37,91 +82,83 @@ async def retrieve_context_node(state: QueryState):
         # Initialize fast, local open-source embedding model
         embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
         
-        # 1. Embed Question
-        try:
-            print("[DEBUG] Embedding question...")
-            query_vector = list(list(embedding_model.embed([question]))[0])
-            knn_query = {
-                "field": "embedding",
-                "query_vector": query_vector,
-                "k": 2,
-                "num_candidates": 50
-            }
-            if db_id and db_id != "selected-db-id":
-                knn_query["filter"] = {"term": {"database_id": db_id}}
-            search_body = {"knn": knn_query}
-        except Exception as embed_err:
-            print(f"Embedding generation failed: {embed_err}")
-            return {"relevant_context": context}
-        
-        # 2. Search in ES (Entities Index)
+        matched_entities = []
+        sub_questions = state.get("sub_questions", [question])
         index_name = f"{settings.ELASTICSEARCH_INDEX_PREFIX}entities"
-        if es_client:
-            exists = await es_client.indices.exists(index=index_name)
-            print(f"[DEBUG] ES Entities Index exists: {exists}")
-            if exists:
-                es_results = await es_client.search(index=index_name, body=search_body)
+        
+        for q in sub_questions:
+            try:
+                print(f"[DEBUG] Embedding sub-question: {q}")
+                query_vector = list(list(embedding_model.embed([q]))[0])
+                knn_query = {
+                    "field": "embedding",
+                    "query_vector": query_vector,
+                    "k": 2,
+                    "num_candidates": 50
+                }
+                search_body = {"knn": knn_query}
                 
-                matched_entities = []
+                if es_client and await es_client.indices.exists(index=index_name):
+                    es_results = await es_client.search(index=index_name, body=search_body)
+                    hits = es_results.get("hits", {}).get("hits", [])[:2]
+                    for hit in hits:
+                        source = hit["_source"]
+                        entity_id = source.get("entity_id")
+                        if entity_id and entity_id not in matched_entities:
+                            matched_entities.append(entity_id)
+            except Exception as e:
+                print(f"Embedding/Search generation failed for sub-question '{q}': {e}")
                 
-                # Enforce strict top 2 match
-                hits = es_results.get("hits", {}).get("hits", [])[:2]
-                print(f"[DEBUG] ES raw response hits (restricted to 2): {len(hits)}")
-                for hit in hits:
-                    source = hit["_source"]
-                    if source.get("entity_id") not in matched_entities:
-                        matched_entities.append(source.get("entity_id"))
-                
-                print(f"[DEBUG] Matched Entities from ES: {matched_entities}")
-                
-            # 3. Query Neo4j to find which Database and Tables map to these Entities
-            if neo4j_driver:
-                async with neo4j_driver.session() as session:
-                    if db_id and db_id != "selected-db-id":
-                        cypher = """
-                        MATCH (db:Database {id: $db_id})-[:HAS_TABLE]->(t:Table)
-                        OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                        WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
-                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
-                        """
-                        neo_res = await session.run(cypher, db_id=db_id)
-                    elif matched_entities:
-                        cypher = """
-                        MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
-                        WHERE e.id IN $matched_entities
-                        WITH DISTINCT db
-                        MATCH (db)-[:HAS_TABLE]->(t:Table)
-                        OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                        WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
-                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
-                        """
-                        neo_res = await session.run(cypher, matched_entities=matched_entities)
-                    else:
-                        neo_res = None
-                        
-                    records = await neo_res.data() if neo_res else []
+        print(f"[DEBUG] Combined Matched Entities from ES across all sub-queries: {matched_entities}")
+        
+        # Query Neo4j to find which Database and Tables map to these Entities
+        if neo4j_driver:
+            async with neo4j_driver.session() as session:
+                if db_id and db_id != "selected-db-id":
+                    cypher = """
+                    MATCH (db:Database {id: $db_id})-[:HAS_TABLE]->(t:Table)
+                    OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                    WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                    RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
+                    """
+                    neo_res = await session.run(cypher, db_id=db_id)
+                elif matched_entities:
+                    cypher = """
+                    MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
+                    WHERE e.id IN $matched_entities
+                    WITH DISTINCT db
+                    MATCH (db)-[:HAS_TABLE]->(t:Table)
+                    OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                    WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                    RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
+                    """
+                    neo_res = await session.run(cypher, matched_entities=matched_entities)
+                else:
+                    neo_res = None
                     
-                    if not records:
-                        print("[DEBUG] Fetching all databases schema as fallback...")
-                        cypher_all = """
-                        MATCH (db:Database)-[:HAS_TABLE]->(t:Table)
-                        OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                        WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
-                        RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
-                        """
-                        neo_res_all = await session.run(cypher_all)
-                        records = await neo_res_all.data()
-                        
-                    if records:
-                        context["available_databases"] = records
-                        context["relationships"] = [{"source": "Entity", "target": "Table", "type": "MAPS_TO"}]
-                        
-                        import json
-                        print(f"[DEBUG] Autonomously retrieved schema for {len(records)} Databases:\n{json.dumps(records, indent=2)}")
-                        return {"relevant_context": context}
-                    else:
-                        print(f"[DEBUG] Neo4j found no databases.")
-                        
+                records = await neo_res.data() if neo_res else []
+                
+                if not records:
+                    print("[DEBUG] Fetching all databases schema as fallback...")
+                    cypher_all = """
+                    MATCH (db:Database)-[:HAS_TABLE]->(t:Table)
+                    OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                    WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                    RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
+                    """
+                    neo_res_all = await session.run(cypher_all)
+                    records = await neo_res_all.data()
+                    
+                if records:
+                    context["available_databases"] = records
+                    context["relationships"] = [{"source": "Entity", "target": "Table", "type": "MAPS_TO"}]
+                    
+                    import json
+                    print(f"[DEBUG] Autonomously retrieved schema for {len(records)} Databases:\n{json.dumps(records, indent=2)}")
+                    return {"relevant_context": context}
+                else:
+                    print(f"[DEBUG] Neo4j found no databases.")
+                    
         print(f"[DEBUG] Context successfully assembled with schemas.")
     except Exception as e:
         print(f"Retrieval error: {e}")
@@ -284,7 +321,7 @@ def should_regenerate_sql(state: QueryState) -> str:
 # Define the graph
 workflow = StateGraph(QueryState)
 
-workflow.add_node("parse_question", parse_question_node)
+workflow.add_node("decompose_query", decompose_query_node)
 workflow.add_node("retrieve_context", retrieve_context_node)
 workflow.add_node("generate_sql", generate_sql_node)
 workflow.add_node("execute_sql", execute_sql_node)
@@ -292,8 +329,8 @@ workflow.add_node("validate_results", validate_results_node)
 workflow.add_node("synthesize_answer", synthesize_answer_node)
 workflow.add_node("recommend_visualizations", recommend_visualizations_node)
 
-workflow.add_edge(START, "parse_question")
-workflow.add_edge("parse_question", "retrieve_context")
+workflow.add_edge(START, "decompose_query")
+workflow.add_edge("decompose_query", "retrieve_context")
 workflow.add_edge("retrieve_context", "generate_sql")
 workflow.add_edge("generate_sql", "execute_sql")
 workflow.add_edge("execute_sql", "validate_results")

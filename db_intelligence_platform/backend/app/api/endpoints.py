@@ -337,13 +337,17 @@ async def get_knowledge_graph(database_id: OptionalType[str] = None):
         
     async with neo4j_driver.session() as session:
         if database_id:
-            # Scoped query: only the target Database node and its contained Entities
+            # Scoped query: target Database, its Entities, Tables, and Columns
             nodes_res = await session.run(
                 """
                 MATCH (db:Database {id: $db_id})
+                OPTIONAL MATCH (db)-[:HAS_TABLE]->(t:Table)
+                OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
                 OPTIONAL MATCH (db)-[:CONTAINS]->(e:Entity)
-                WITH collect(db) + collect(e) AS all_nodes
-                UNWIND all_nodes AS n
+                WITH collect(db) + collect(t) + collect(c) + collect(e) AS raw_nodes
+                UNWIND raw_nodes AS n
+                WITH DISTINCT n
+                WHERE n IS NOT NULL
                 RETURN n.id AS id,
                        coalesce(n.label, n.name, n.id) AS label,
                        labels(n)[0] AS type
@@ -354,18 +358,20 @@ async def get_knowledge_graph(database_id: OptionalType[str] = None):
             edges_res = await session.run(
                 """
                 MATCH (db:Database {id: $db_id})
+                OPTIONAL MATCH (db)-[:HAS_TABLE]->(t:Table)
+                OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
                 OPTIONAL MATCH (db)-[:CONTAINS]->(e:Entity)
-                WITH collect(db.id) + collect(e.id) AS node_ids
+                WITH collect(db.id) + collect(t.id) + collect(c.id) + collect(e.id) AS node_ids
                 MATCH (src)-[r]->(tgt)
                 WHERE src.id IN node_ids AND tgt.id IN node_ids
-                RETURN src.id AS source, tgt.id AS target, type(r) AS type
+                RETURN DISTINCT src.id AS source, tgt.id AS target, type(r) AS type
                 """,
                 db_id=database_id
             )
         else:
-            # Global query: all Entities and Databases
+            # Global query: all Entities, Databases, Tables, and Columns
             nodes_res = await session.run(
-                "MATCH (n) WHERE n:Entity OR n:Database "
+                "MATCH (n) WHERE n:Entity OR n:Database OR n:Table OR n:Column "
                 "RETURN n.id AS id, coalesce(n.label, n.name, n.id) AS label, labels(n)[0] AS type"
             )
             edges_res = await session.run(
@@ -380,7 +386,7 @@ async def get_knowledge_graph(database_id: OptionalType[str] = None):
             {
                 "id": n["id"], 
                 "type": "input" if n["type"] == "Database" else "default", 
-                "data": {"label": f"{n['type']}:\n{n['label']}" if n["type"] == "Database" else n["label"]}, 
+                "data": {"label": f"[{n['type']}]\n{n['label']}"}, 
                 "position": {"x": 0, "y": 0}
             }
             for n in raw_nodes if n.get("id")

@@ -11,11 +11,35 @@ interface DatabaseMeta {
 }
 
 export default function QueryInterface() {
-  const [question, setQuestion] = useState("")
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
-  const [result, setResult] = useState<any>(null)
+  const [question, setQuestion] = useState(() => sessionStorage.getItem("query_question") || "")
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">(
+    () => (sessionStorage.getItem("query_status") as any) || "idle"
+  )
+  const [result, setResult] = useState<any>(() => {
+    const saved = sessionStorage.getItem("query_result");
+    return saved ? JSON.parse(saved) : null;
+  })
   const [databases, setDatabases] = useState<DatabaseMeta[]>([])
-  const [errorMessage, setErrorMessage] = useState<string>("")
+  const [errorMessage, setErrorMessage] = useState<string>(() => sessionStorage.getItem("query_error") || "")
+
+  // If the user navigates away or refreshes during a fetch, the state might get stuck as 'loading'. 
+  // We cannot resume an aborted fetch on mount, so we must safely reset it.
+  useEffect(() => {
+    if (status === "loading") {
+      setStatus("idle")
+    }
+  }, [])
+
+  useEffect(() => {
+    sessionStorage.setItem("query_question", question)
+    sessionStorage.setItem("query_status", status)
+    sessionStorage.setItem("query_error", errorMessage)
+    if (result) {
+      sessionStorage.setItem("query_result", JSON.stringify(result))
+    } else {
+      sessionStorage.removeItem("query_result")
+    }
+  }, [question, status, errorMessage, result])
 
   useEffect(() => {
     fetch("http://localhost:8000/api/v1/stats")
