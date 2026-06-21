@@ -152,34 +152,69 @@ async def identify_entities_node(state: OnboardingState):
         print("Skipping due to previous error.")
         return state
         
+    from app.core.database import neo4j_driver
+    
     client = AsyncOpenAI(
         api_key=settings.OPENAI_API_KEY,
         base_url=settings.OPENAI_BASE_URL
     )
     
+    existing_entities = []
+    if neo4j_driver:
+        try:
+            async with neo4j_driver.session() as session:
+                res = await session.run("MATCH (e:Entity) RETURN e.id AS id, e.description AS description LIMIT 50")
+                records = await res.data()
+                existing_entities = [{"id": r["id"], "description": r["description"]} for r in records]
+        except Exception as e:
+            print(f"[ERROR] Could not fetch existing entities: {e}")
+            
+    existing_entities_context = json.dumps(existing_entities) if existing_entities else "[]"
+    
     extracted_tables = state["extracted_schema"].get("tables", [])
     
+    semantics = state.get("semantic_descriptions", {})
     schema_summary = json.dumps([
-        {"table": t["name"], "columns": [c["name"] for c in t["columns"]]} 
+        {
+            "table": t["name"], 
+            "purpose": semantics.get(t["name"], ""),
+            "columns": [c["name"] for c in t["columns"]]
+        } 
         for t in extracted_tables
     ])
     
     prompt = f"""
-    Analyze this database schema and identify the core abstract business Entities (nodes) and Relationships (edges) to construct a Knowledge Graph.
-    For each Entity, provide a rich semantic 'description' (this will be vectorized for semantic search), and an array of 'mapped_tables' that physical represent this entity in the database.
+    You are an expert Enterprise Data Architect. Analyze the following database schema and identify the core abstract business Entities (nodes) and Relationships (edges) to construct a Knowledge Graph.
+    
+    CRITICAL INSTRUCTIONS:
+    1. Look beyond just table names. Inspect the columns and the table's "purpose" to identify implicit or embedded business concepts (e.g., an 'Observation' or 'Transaction' that exists inside an 'Inspection' or 'Account' table).
+    2. An Entity does not need to have a 1-to-1 mapping with a table. If a table contains data about multiple distinct concepts (e.g., a Customer and their Address), create separate Entities and map both to that same table.
+    3. Ensure naming is strictly abstract and universal (e.g., use "Customer" instead of "tbl_cust_data").
+    4. GLOBAL KNOWLEDGE GRAPH REUSE: You are building an enterprise-wide graph. Below is a list of 'Existing Entities' that are already in the global graph from other databases. If the schema you are analyzing contains data that maps perfectly to an Existing Entity, you MUST reuse its EXACT `id` instead of inventing a new one! (e.g., if "Bank" exists, use "Bank", do not create "RespondentBank").
+    
+    For each Entity, provide a rich semantic 'description' (this will be vectorized for semantic search), and an array of 'mapped_tables' where data for this entity resides.
+    
     Return ONLY a valid JSON object in this exact format:
     {{
       "entities": [
         {{
           "id": "Customer",
-          "description": "...",
-          "mapped_tables": ["CUSTOMERS"]
+          "description": "A person or organization that purchases goods.",
+          "mapped_tables": ["CUSTOMERS", "ORDERS"]
+        }},
+        {{
+          "id": "Observation",
+          "description": "A specific finding or data point recorded during an inspection.",
+          "mapped_tables": ["INSPECTION_REPORTS"]
         }}
       ],
-      "relationships": [ {{"source": "Customer", "target": "Order", "type": "PLACES"}}, ... ]
+      "relationships": [ {{"source": "Customer", "target": "Order", "type": "PLACES"}} ]
     }}
     
-    Schema:
+    Existing Entities in Global Graph:
+    {existing_entities_context}
+    
+    Schema context (Tables, Purposes, and Columns):
     {schema_summary}
     """
     

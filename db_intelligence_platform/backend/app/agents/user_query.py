@@ -117,8 +117,10 @@ async def retrieve_context_node(state: QueryState):
                 cypher = """
                 MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
                 WHERE e.id IN $matched_entities
-                OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                WHERE EXISTS((c)-[:REPRESENTS]->(e)) OR NOT EXISTS((t)-[:HAS_COLUMN]->(:Column)-[:REPRESENTS]->(e))
+                MATCH (t)-[:HAS_COLUMN]->(all_c:Column)
+                WITH db, e, t, count(all_c) AS total_columns
+                MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                WHERE total_columns <= 5 OR EXISTS((c)-[:REPRESENTS]->(e))
                 WITH db, t, collect(DISTINCT {name: c.name, type: c.type, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
                 ORDER BY size(columns) DESC
                 WITH db, collect({name: t.name, columns: columns})[0..5] AS top_tables_for_db
