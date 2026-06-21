@@ -15,8 +15,10 @@ class OnboardRequest(BaseModel):
     connection_string: str
     database_name: str
 
+from typing import Optional
+
 class QueryRequest(BaseModel):
-    database_id: str
+    database_id: Optional[str] = None
     question: str
 
 # In-memory mock tracking for background tasks during hackathon
@@ -24,6 +26,27 @@ tasks_status = {}
 mock_db_connections = {}
 
 from app.core.database import neo4j_driver
+
+import json
+import os
+
+REGISTRY_FILE = "registry.json"
+
+def read_registry():
+    if os.path.exists(REGISTRY_FILE):
+        try:
+            with open(REGISTRY_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+    return {}
+
+def write_registry(data):
+    try:
+        with open(REGISTRY_FILE, "w") as f:
+            json.dump(data, f)
+    except:
+        pass
 
 @router.get("/stats")
 async def get_stats():
@@ -40,24 +63,27 @@ async def get_stats():
             
     db_count = 0
     db_names = []
-    if engine:
-        try:
-            from sqlalchemy import text
-            async with engine.connect() as conn:
-                res = await conn.execute(text("SELECT database_name FROM onboarded_databases"))
-                rows = res.fetchall()
-                if rows:
-                    db_names = [r[0] for r in rows if r[0]]
-                    db_count = len(db_names)
-        except Exception:
-            # Fallback to memory if DB query fails or table isn't created yet
-            db_count = len(tasks_status)
-    else:
+    
+    # Retrieve stats securely from the file registry
+    registry = read_registry()
+    db_names = [info.get("name", "Unknown DB") for info in registry.values()]
+    databases = [
+        {
+            "id": db_id,
+            "name": info.get("name", "Unknown DB"),
+            "status": tasks_status.get(db_id, "completed")
+        }
+        for db_id, info in registry.items()
+    ]
+    db_count = len(db_names)
+            
+    if db_count == 0:
         db_count = len(tasks_status)
             
     return {
         "total_databases": db_count,
         "database_names": db_names,
+        "databases": databases,
         "entities_identified": entities_count,
         "queries_today": 0
     }
@@ -75,6 +101,14 @@ async def onboard_database(request: OnboardRequest, background_tasks: Background
     # Deterministic ID to prevent duplicate DB onboardings
     db_id = hashlib.md5(request.connection_string.encode()).hexdigest()
     mock_db_connections[db_id] = request.connection_string
+    
+    # Store metadata securely in file registry
+    registry = read_registry()
+    registry[db_id] = {
+        "name": request.database_name,
+        "connection_string": request.connection_string
+    }
+    write_registry(registry)
     
     # Proactively wipe previous footprint to prevent entity duplication
     if neo4j_driver:
@@ -129,14 +163,21 @@ async def delete_database(database_id: str):
     if neo4j_driver:
         try:
             async with neo4j_driver.session() as session:
-                await session.run("MATCH (db:Database {id: $db_id})-[:CONTAINS]->(e:Entity) DETACH DELETE db, e", db_id=database_id)
+                cypher = """
+                MATCH (db:Database {id: $db_id})
+                OPTIONAL MATCH (db)-[:HAS_TABLE]->(t:Table)
+                OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+                OPTIONAL MATCH (db)-[:CONTAINS]->(e:Entity)
+                DETACH DELETE db, t, c, e
+                """
+                await session.run(cypher, db_id=database_id)
         except Exception:
             pass
             
     if es_client:
         try:
             await es_client.delete_by_query(
-                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}entities",
                 query={"match": {"database_id": database_id}},
                 ignore_unavailable=True
             )
@@ -152,6 +193,12 @@ async def delete_database(database_id: str):
         
     tasks_status.pop(database_id, None)
     mock_db_connections.pop(database_id, None)
+    
+    registry = read_registry()
+    if database_id in registry:
+        del registry[database_id]
+        write_registry(registry)
+        
     return {"status": "deleted", "database_id": database_id}
 
 @router.delete("/graph/clear")
@@ -167,7 +214,7 @@ async def clear_knowledge_graph():
     if es_client:
         try:
             await es_client.delete_by_query(
-                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}tables",
+                index=f"{settings.ELASTICSEARCH_INDEX_PREFIX}entities",
                 query={"match_all": {}},
                 ignore_unavailable=True
             )
@@ -183,6 +230,7 @@ async def clear_knowledge_graph():
         
     tasks_status.clear()
     mock_db_connections.clear()
+    write_registry({})
     return {"status": "graph cleared"}
 
 @router.get("/onboard/{database_id}/status")
@@ -195,19 +243,17 @@ async def ask_question(request: QueryRequest):
     """
     Executes the User Query workflow: NL -> SQL -> Validate -> Synthesize Answer.
     """
-    # Grab the connection string from memory
-    # Since the UI currently hardcodes "selected-db-id", we will just use the last onboarded db!
-    conn_str = mock_db_connections.get(request.database_id)
-    if not conn_str and mock_db_connections:
-        conn_str = list(mock_db_connections.values())[-1]
-    elif not conn_str:
-        # Fallback to local Oracle config from settings
-        user_escaped = settings.ORACLE_USERNAME.replace("#", "%23")
-        conn_str = f"oracle+oracledb_async://{user_escaped}:{settings.ORACLE_PASSWORD}@{settings.ORACLE_HOST}:{settings.ORACLE_PORT}/?service_name={settings.ORACLE_SERVICE_NAME}"
+    # Grab the connection string from memory if database_id is provided
+    conn_str = None
+    if request.database_id and request.database_id != "selected-db-id":
+        conn_str = mock_db_connections.get(request.database_id)
+        if not conn_str:
+            registry = read_registry()
+            conn_str = registry.get(request.database_id, {}).get("connection_string")
 
     # Hazelcast Chat Session Caching
     chat_history = []
-    session_id = f"chat_{request.database_id}"
+    session_id = f"chat_{request.database_id}" if request.database_id else f"chat_global"
     if hz_client:
         try:
             chat_map = hz_client.get_map("chat_sessions").blocking()
@@ -220,7 +266,7 @@ async def ask_question(request: QueryRequest):
     initial_state = {
         "question": request.question,
         "database_id": request.database_id,
-        "relevant_context": {"connection_string": conn_str, "chat_history": chat_history},
+        "relevant_context": {"connection_string": conn_str, "chat_history": chat_history} if conn_str else {"chat_history": chat_history},
         "generated_sql": None,
         "query_results": None,
         "validation_error": None,
@@ -243,12 +289,17 @@ async def ask_question(request: QueryRequest):
                 print(f"Hazelcast Write Error: {e}")
 
         return {
+            "database_id": final_state.get("database_id"),
+            "database_name": final_state.get("database_name"),
             "answer": final_state.get("synthesized_answer", "Error synthesizing answer"),
             "sql_used": final_state.get("generated_sql"),
             "visualizations": final_state.get("recommended_visualizations"),
             "results": final_state.get("query_results")
         }
     except Exception as e:
+        import traceback
+        print("----- EXCEPTION IN QUERY ENDPOINT -----")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 from app.core.database import neo4j_driver
