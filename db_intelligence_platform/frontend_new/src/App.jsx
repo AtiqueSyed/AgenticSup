@@ -105,6 +105,8 @@ export default function App() {
         onLogout={() => setUserRole(null)} 
         adminActiveTab={adminActiveTab}
         setAdminActiveTab={setAdminActiveTab}
+        theme={theme}
+        toggleTheme={toggleTheme}
       />
     );
   }
@@ -115,6 +117,8 @@ export default function App() {
         onLogout={() => setUserRole(null)} 
         adminActiveTab={adminActiveTab}
         setAdminActiveTab={setAdminActiveTab}
+        theme={theme}
+        toggleTheme={toggleTheme}
       />
     );
   }
