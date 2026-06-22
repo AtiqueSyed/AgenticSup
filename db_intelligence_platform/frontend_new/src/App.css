@@ -74,7 +74,7 @@
 .logo-text {
   font-size: 18px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   letter-spacing: 0.5px;
 }
 
@@ -86,8 +86,8 @@
 }
 
 .toggle-sidebar-btn:hover {
-  background-color: #1e293b;
-  color: #fff;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 /* Sidebar Navigation Link items */
@@ -121,13 +121,13 @@
 }
 
 .sidebar-nav li:hover button {
-  background-color: #161f30;
-  color: #fff;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .sidebar-nav li.active button {
-  background-color: #1e293b;
-  color: #fff;
+  background-color: var(--bg-submit-btn);
+  color: var(--text-submit-btn);
 }
 
 .nav-icon {
@@ -185,8 +185,8 @@
   top: 64px;
   width: 280px;
   max-height: 480px;
-  background-color: #1c1d22;
-  border: 1px solid #2d2e35;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
   padding: 12px;
@@ -203,7 +203,7 @@
   justify-content: space-between;
   font-size: 14px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
   padding: 0 4px;
 }
 
@@ -214,7 +214,7 @@
 }
 
 .delete-all-chats:hover {
-  background-color: #2d2e35;
+  background-color: var(--bg-primary);
   color: #f87171;
 }
 
@@ -233,12 +233,12 @@
 
 .popover-search input {
   width: 100%;
-  background-color: #0f1012;
-  border: 1px solid #2d2e35;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 8px 10px 8px 32px;
   font-size: 13px;
-  color: #fff;
+  color: var(--text-primary);
   outline: none;
 }
 
@@ -283,7 +283,7 @@
 }
 
 .popover-chat-item-row:hover {
-  background-color: #2d2e35;
+  background-color: var(--bg-primary);
 }
 
 .popover-chat-item-btn {
@@ -299,7 +299,7 @@
 }
 
 .popover-chat-item-btn:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .delete-chat-session-btn {
@@ -388,7 +388,7 @@
 .build-knowledge-title {
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .files-section-header {
@@ -503,7 +503,7 @@
 
 .file-name-span {
   font-size: 13px;
-  color: #fff;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -647,7 +647,7 @@
 .welcome-header {
   font-size: 40px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-primary);
   margin-bottom: 4px;
   letter-spacing: -0.5px;
 }
@@ -737,7 +737,7 @@
 /* User Message bubble (Image 4) */
 .user-message-bubble {
   background-color: var(--bg-bubble-user);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-light);
   border-radius: 16px;
   padding: 12px 18px;
   max-width: 75%;
@@ -745,7 +745,7 @@
 
 .user-message-bubble p {
   font-size: 15px;
-  color: #fff;
+  color: var(--text-primary);
   line-height: 1.5;
 }
 
@@ -774,7 +774,7 @@
 }
 
 .thoughts-header-btn:hover {
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: var(--bg-hover);
 }
 
 .thoughts-title {
@@ -826,7 +826,7 @@
 .step-title {
   font-size: 12px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .step-desc {
@@ -1007,7 +1007,7 @@
 .md-h3 {
   font-size: 16px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
   margin-top: 16px;
   margin-bottom: 8px;
 }
@@ -1024,7 +1024,7 @@
 }
 
 .md-bold {
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -1166,8 +1166,8 @@
 }
 
 .input-shortcut-btn:hover {
-  background-color: #1e293b;
-  color: #fff;
+  background-color: var(--bg-shortcut-btn-hover);
+  color: var(--text-shortcut-btn-hover);
 }
 
 .query-capsule-input-container input {
@@ -1176,25 +1176,25 @@
   border: none;
   outline: none;
   font-size: 14px;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .query-capsule-input-container input::placeholder {
-  color: #4b5563;
+  color: var(--text-muted);
 }
 
 .submit-query-btn {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background-color: #1e293b;
-  color: var(--text-secondary);
+  background-color: var(--bg-submit-btn);
+  color: var(--text-submit-btn);
   transition: all 0.15s ease;
 }
 
 .submit-query-btn:hover:not(:disabled) {
-  background-color: #fff;
-  color: #000;
+  background-color: var(--bg-submit-btn-hover);
+  color: var(--text-submit-btn-hover);
   transform: scale(1.05);
 }
 
@@ -1408,8 +1408,8 @@
   position: absolute;
   bottom: 46px;
   left: -8px;
-  background-color: #1c1d22;
-  border: 1px solid #2d2e35;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 10px 12px;
   display: flex;
@@ -1439,7 +1439,7 @@
   justify-content: flex-start;
   gap: 8px;
   font-size: 13px;
-  color: #e2e8f0;
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 6px 8px;
   border-radius: 6px;
@@ -1450,8 +1450,8 @@
 }
 
 .dropdown-checkbox-item:hover {
-  background-color: #2d2e35;
-  color: #fff;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .settings-checkbox-input {

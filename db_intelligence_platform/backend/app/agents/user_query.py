@@ -93,14 +93,14 @@ async def retrieve_context_node(state: QueryState):
                 knn_query = {
                     "field": "embedding",
                     "query_vector": query_vector,
-                    "k": 2,
+                    "k": 1,
                     "num_candidates": 50
                 }
                 search_body = {"knn": knn_query}
                 
                 if es_client and await es_client.indices.exists(index=index_name):
                     es_results = await es_client.search(index=index_name, body=search_body)
-                    hits = es_results.get("hits", {}).get("hits", [])[:2]
+                    hits = es_results.get("hits", {}).get("hits", [])[:1]
                     for hit in hits:
                         source = hit["_source"]
                         entity_id = source.get("entity_id")
@@ -199,6 +199,10 @@ async def generate_sql_node(state: QueryState):
     You are an expert SQL Developer. A user has asked a question.
     Below are the schemas of the available databases that contain information matching the user's intent.
     There may be multiple databases. You must select the ONE BEST database to query, and write a SQL query for it.
+    
+    CRITICAL SQL GUIDELINES:
+    1. Generate an Oracle-compatible SQL query.
+    2. DO NOT use the "schema.table_name" format. Only use the table name directly (e.g., "FROM your_table" and NOT "FROM your_schema.your_table").
     
     Context (Databases, Tables, and Columns):
     {context_str}
@@ -319,9 +323,78 @@ async def synthesize_answer_node(state: QueryState):
         # MOCK FALLBACK: For local testing
         return {"synthesized_answer": f"Based on the extracted database rows, I found {len(state.get('query_results', []))} records that match your request."}
 
-def recommend_visualizations_node(state: QueryState):
+async def recommend_visualizations_node(state: QueryState):
     """LLM determines the best chart type and JSON spec for the frontend ECharts."""
-    return {"recommended_visualizations": {"type": "bar", "spec": {}}}
+    print("----- [QUERY NODE: recommend_visualizations] Started -----")
+    
+    query_results = state.get("query_results", [])
+    if not query_results or len(query_results) == 0:
+        return {"recommended_visualizations": None}
+        
+    client = AsyncOpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        base_url=settings.OPENAI_BASE_URL
+    )
+    
+    # Send up to 50 rows for context to determine if it can be charted
+    sample_data = query_results[:50]
+    
+    prompt = f"""
+    You are an expert Data Visualization Agent. 
+    You have been given a dataset resulting from a SQL query.
+    Your task is to determine if this data can be meaningfully visualized as a Bar Chart.
+    
+    Data:
+    {json.dumps(sample_data, default=str)}
+    
+    Criteria for a Bar Chart:
+    - There must be at least one column that represents a categorical or time-based label (e.g., Bank Name, Month, ID).
+    - There must be at least one column that represents a numerical value (e.g., Count, Amount, Score).
+    
+    If the data is NOT suitable for a Bar Chart (e.g., just a list of text names, or raw unstructured data), return a JSON object with "is_visualizable": false.
+    
+    If it IS suitable, return a JSON object with "is_visualizable": true, and provide the exact JSON specification in the "spec" field.
+    
+    The frontend component strictly expects the following structure in the spec:
+    {{
+      "xAxis": {{
+        "data": ["Label1", "Label2", ...]
+      }},
+      "series": [
+        {{
+          "data": [10, 20, ...]
+        }}
+      ]
+    }}
+    
+    CRITICAL: You MUST output a raw JSON object. Do not wrap in markdown code blocks.
+    Format:
+    {{
+      "is_visualizable": true_or_false,
+      "spec": {{ ... }}
+    }}
+    """
+    
+    try:
+        response = await client.chat.completions.create(
+            model=settings.DEFAULT_LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        result = json.loads(content)
+        
+        if result.get("is_visualizable") and result.get("spec"):
+            print("[DEBUG] Visualization Recommended successfully.")
+            # Wrap the spec in the format expected by the graph state
+            return {"recommended_visualizations": {"type": "bar", "spec": result.get("spec")}}
+        else:
+            print("[DEBUG] Data determined not suitable for visualization.")
+            return {"recommended_visualizations": None}
+            
+    except Exception as e:
+        print(f"[ERROR] Visualization recommendation failed: {e}")
+        return {"recommended_visualizations": None}
 
 # Conditional edge logic
 def should_regenerate_sql(state: QueryState) -> str:

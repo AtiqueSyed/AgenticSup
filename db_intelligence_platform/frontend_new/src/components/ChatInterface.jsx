@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 
 // Lightweight zero-dependency canvas bar chart
-function CanvasBarChart({ chartSpec }) {
+function CanvasBarChart({ chartSpec, theme }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -38,7 +38,7 @@ function CanvasBarChart({ chartSpec }) {
     const series = chartSpec?.series || [];
     const values = series[0]?.data || [];
     if (!labels.length || !values.length) {
-      ctx.fillStyle = '#94a3b8';
+      ctx.fillStyle = theme === 'light' ? '#64748b' : '#94a3b8';
       ctx.font = '13px Inter, sans-serif';
       ctx.fillText('No chart data available', 20, H / 2);
       return;
@@ -60,13 +60,13 @@ function CanvasBarChart({ chartSpec }) {
     for (let i = 0; i <= gridLines; i++) {
       const y = pad.top + chartH - (i / gridLines) * chartH;
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.strokeStyle = theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
       ctx.lineWidth = 1;
       ctx.moveTo(pad.left, y);
       ctx.lineTo(pad.left + chartW, y);
       ctx.stroke();
       const labelVal = ((maxVal * i) / gridLines).toFixed(0);
-      ctx.fillStyle = '#64748b';
+      ctx.fillStyle = theme === 'light' ? '#475569' : '#64748b';
       ctx.font = '10px Inter, sans-serif';
       ctx.textAlign = 'right';
       ctx.fillText(labelVal, pad.left - 6, y + 3);
@@ -89,19 +89,19 @@ function CanvasBarChart({ chartSpec }) {
       ctx.fill();
 
       // X-label
-      ctx.fillStyle = '#94a3b8';
+      ctx.fillStyle = theme === 'light' ? '#475569' : '#94a3b8';
       ctx.font = '9px Inter, sans-serif';
       ctx.textAlign = 'center';
       const shortLabel = String(label).length > 10 ? String(label).slice(0, 9) + '…' : String(label);
       ctx.fillText(shortLabel, x + barW / 2, H - pad.bottom + 14);
 
       // Value on top
-      ctx.fillStyle = '#e2e8f0';
+      ctx.fillStyle = theme === 'light' ? '#0f172a' : '#e2e8f0';
       ctx.font = 'bold 9px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(val.toLocaleString(), x + barW / 2, y - 4);
     });
-  }, [chartSpec]);
+  }, [chartSpec, theme]);
 
   return (
     <canvas
@@ -175,7 +175,7 @@ const REGULATED_ENTITIES = [
   "South Indian Bank"
 ];
 
-export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onNewChatSession, userRole = 'user' }) {
+export default function ChatInterface({ lang, theme = 'dark', presetQuery, clearPresetQuery, onNewChatSession, userRole = 'user' }) {
   const [messages, setMessages] = useState([]);
   const [inputVal, setInputVal] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -366,21 +366,21 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
 
       // Check for headings: ### Header
       if (content.startsWith('### ')) {
-        return <h4 key={elementKey} className="md-h3" style={{ fontSize: '14px', margin: '12px 0 6px 0', color: '#ffffff', fontWeight: '600' }}>{content.replace('### ', '')}</h4>;
+        return <h4 key={elementKey} className="md-h3" style={{ fontSize: '14px', margin: '12px 0 6px 0', color: 'var(--text-primary)', fontWeight: '600' }}>{content.replace('### ', '')}</h4>;
       }
       
       // Check for bullet lists: * List
       if (content.startsWith('* ')) {
         const itemText = content.replace('* ', '');
         return (
-          <li key={elementKey} className="md-li" style={{ marginLeft: '16px', listStyleType: 'disc', color: '#cbd5e1', marginBottom: '4px' }}>
+          <li key={elementKey} className="md-li" style={{ marginLeft: '16px', listStyleType: 'disc', color: 'var(--text-secondary)', marginBottom: '4px' }}>
             {parseBoldText(itemText)}
           </li>
         );
       }
 
       // Default paragraph
-      return <p key={elementKey} className="md-p" style={{ margin: '6px 0', color: '#cbd5e1' }}>{parseBoldText(content)}</p>;
+      return <p key={elementKey} className="md-p" style={{ margin: '6px 0', color: 'var(--text-secondary)' }}>{parseBoldText(content)}</p>;
     });
   };
 
@@ -388,7 +388,7 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
     const parts = text.split(/\*\*(.*?)\*\*/g);
     return parts.map((part, index) => {
       if (index % 2 === 1) {
-        return <strong key={index} className="md-bold" style={{ color: '#ffffff', fontWeight: '700' }}>{part}</strong>;
+        return <strong key={index} className="md-bold" style={{ color: 'var(--text-primary)', fontWeight: '700' }}>{part}</strong>;
       }
       return part;
     });
@@ -680,28 +680,31 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
                   type="button"
                   onClick={() => handleSend(s.text)}
                   style={{
-                    background: 'rgba(20, 25, 35, 0.4)',
-                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-color)',
                     borderRadius: '8px',
                     padding: '12px 16px',
                     textAlign: 'left',
-                    color: '#94a3b8',
+                    color: 'var(--text-secondary)',
                     cursor: 'pointer',
                     fontSize: '12px',
                     lineHeight: '1.4',
-                    transition: 'all 0.15s ease'
+                    transition: 'all 0.15s ease',
+                    boxShadow: theme === 'light' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.3)';
-                    e.currentTarget.style.color = '#ffffff';
+                    e.currentTarget.style.borderColor = 'var(--accent-purple)';
+                    e.currentTarget.style.color = 'var(--text-primary)';
+                    e.currentTarget.style.background = 'var(--bg-hover)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
-                    e.currentTarget.style.color = '#94a3b8';
+                    e.currentTarget.style.borderColor = 'var(--border-color)';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                    e.currentTarget.style.background = 'var(--bg-card)';
                   }}
                 >
                   <div style={{ fontWeight: '600', color: '#a855f7', marginBottom: '4px' }}>{s.label}</div>
-                  <div>{s.text}</div>
+                  <div style={{ color: theme === 'light' ? 'var(--text-primary)' : 'inherit' }}>{s.text}</div>
                 </button>
               ))}
             </div>
@@ -732,22 +735,22 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
 
                     {/* Collapsible Thoughts Trace */}
                     {msg.thoughts && msg.thoughts.length > 0 && (
-                      <div className="agent-thoughts-section" style={{ margin: '4px 16px', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '6px', overflow: 'hidden' }}>
+                      <div className="agent-thoughts-section" style={{ margin: '4px 16px', border: '1px solid var(--border-light)', borderRadius: '6px', overflow: 'hidden' }}>
                         <button
                           type="button"
                           onClick={() => toggleThoughts(msg.id)}
                           className="flex-center"
-                          style={{ width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.02)', border: 'none', color: '#94a3b8', fontSize: '11px', justifyContent: 'space-between', cursor: 'pointer' }}
+                          style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-hover)', border: 'none', color: 'var(--text-secondary)', fontSize: '11px', justifyContent: 'space-between', cursor: 'pointer' }}
                         >
                           <span className="flex-center" style={{ gap: '6px' }}><Settings size={12} /> {t.agentReasoning}</span>
                           {showThoughts[msg.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </button>
                         {showThoughts[msg.id] && (
-                          <div className="thoughts-content-list" style={{ padding: '10px 12px', background: 'rgba(0,0,0,0.15)', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div className="thoughts-content-list" style={{ padding: '10px 12px', background: 'var(--bg-card)', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {msg.thoughts.map((step, idx) => (
                               <div key={idx} style={{ borderLeft: '2px solid #a855f7', paddingLeft: '8px' }}>
                                 <strong style={{ color: '#a855f7' }}>{step.step}: </strong>
-                                <span style={{ color: '#cbd5e1' }}>{step.desc}</span>
+                                <span style={{ color: 'var(--text-secondary)' }}>{step.desc}</span>
                               </div>
                             ))}
                           </div>
@@ -757,7 +760,7 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
 
                     {/* Collapsible SQL Query Block */}
                     {msg.sql && (
-                      <div className="agent-sql-section" style={{ margin: '4px 16px', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '6px', overflow: 'hidden' }}>
+                      <div className="agent-sql-section" style={{ margin: '4px 16px', border: '1px solid var(--border-light)', borderRadius: '6px', overflow: 'hidden' }}>
                         <button
                           type="button"
                           onClick={() => {
@@ -765,20 +768,31 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
                             setShowThoughts(prev => ({ ...prev, [key]: !prev[key] }));
                           }}
                           className="flex-center"
-                          style={{ width: '100%', padding: '8px 12px', background: 'rgba(255,255,255,0.02)', border: 'none', color: '#94a3b8', fontSize: '11px', justifyContent: 'space-between', cursor: 'pointer' }}
+                          style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-hover)', border: 'none', color: 'var(--text-secondary)', fontSize: '11px', justifyContent: 'space-between', cursor: 'pointer' }}
                         >
                           <span className="flex-center" style={{ gap: '6px' }}><Code size={12} /> {t.sqlQuery}</span>
                           {showThoughts[`sql_${msg.id}`] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </button>
                         {showThoughts[`sql_${msg.id}`] && (
-                          <div className="sql-code-block" style={{ padding: '12px', background: '#090d16', position: 'relative' }}>
-                            <pre style={{ margin: 0, fontFamily: 'monospace', color: '#10b981', fontSize: '12px', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                          <div className="sql-code-block" style={{ padding: '12px', background: 'var(--bg-primary)', position: 'relative', borderTop: '1px solid var(--border-light)' }}>
+                            <pre style={{ margin: 0, fontFamily: 'monospace', color: 'var(--accent-cyan)', fontSize: '12px', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                               <code>{msg.sql}</code>
                             </pre>
                             <button
                               type="button"
                               onClick={() => handleCopyText(msg.sql, `sql_${msg.id}`)}
-                              style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' }}
+                              style={{
+                                position: 'absolute',
+                                top: '8px',
+                                right: '8px',
+                                background: 'var(--bg-card)',
+                                border: '1px solid var(--border-light)',
+                                color: 'var(--text-secondary)',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                cursor: 'pointer'
+                              }}
                             >
                               {copiedMsgId === `sql_${msg.id}` ? 'Copied!' : t.copysql}
                             </button>
@@ -794,15 +808,15 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
 
                     {/* Interactive SQL Output Rows table */}
                     {msg.rows && msg.rows.length > 0 && (
-                      <div className="agent-table-section" style={{ margin: '8px 16px', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', overflow: 'hidden' }}>
-                        <div className="table-header-title flex-center" style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.02)', color: '#94a3b8', fontSize: '11px', borderBottom: '1px solid rgba(255,255,255,0.05)', gap: '6px', justifyContent: 'flex-start' }}>
-                          <FileSpreadsheet size={12} />
+                      <div className="agent-table-section" style={{ margin: '8px 16px', border: '1px solid var(--border-light)', borderRadius: '8px', overflow: 'hidden' }}>
+                        <div className="table-header-title flex-center" style={{ padding: '8px 12px', background: 'var(--bg-hover)', color: 'var(--text-secondary)', fontSize: '11px', borderBottom: '1px solid var(--border-light)', gap: '6px', justifyContent: 'flex-start' }}>
+                          <FileSpreadsheet size={12} style={{ color: theme === 'light' ? '#7c3aed' : 'inherit' }} />
                           <span>{t.queryResults} ({msg.rows.length} rows)</span>
                         </div>
                         <div style={{ overflowX: 'auto', maxHeight: '200px' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
                             <thead>
-                              <tr style={{ background: 'rgba(0,0,0,0.3)', color: '#94a3b8', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                              <tr style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-light)' }}>
                                 {msg.columns.map(col => (
                                   <th key={col} style={{ padding: '8px 12px', fontWeight: '600' }}>{col}</th>
                                 ))}
@@ -810,9 +824,9 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
                             </thead>
                             <tbody>
                               {msg.rows.map((row, idx) => (
-                                <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                                <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)', background: idx % 2 === 0 ? 'transparent' : 'var(--bg-hover)' }}>
                                   {msg.columns.map(col => (
-                                    <td key={col} style={{ padding: '8px 12px', color: '#cbd5e1' }}>{String(row[col] ?? '')}</td>
+                                    <td key={col} style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{String(row[col] ?? '')}</td>
                                   ))}
                                 </tr>
                               ))}
@@ -824,12 +838,12 @@ export default function ChatInterface({ lang, presetQuery, clearPresetQuery, onN
 
                     {/* Canvas Bar Chart Visualizations */}
                     {msg.chartSpec && (
-                      <div className="agent-chart-section" style={{ margin: '8px 16px', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', overflow: 'hidden', background: 'rgba(20, 25, 35, 0.6)', padding: '16px', backdropFilter: 'blur(8px)' }}>
-                        <div className="chart-header-title flex-center" style={{ margin: '0 0 12px 0', color: '#94a3b8', fontSize: '11px', gap: '6px', justifyContent: 'flex-start' }}>
-                          <BarChart2 size={12} />
+                      <div className="agent-chart-section" style={{ margin: '8px 16px', border: '1px solid var(--border-light)', borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-card)', padding: '16px', backdropFilter: 'blur(8px)', boxShadow: theme === 'light' ? '0 4px 6px -1px rgba(0,0,0,0.05)' : 'none' }}>
+                        <div className="chart-header-title flex-center" style={{ margin: '0 0 12px 0', color: 'var(--text-secondary)', fontSize: '11px', gap: '6px', justifyContent: 'flex-start' }}>
+                          <BarChart2 size={12} style={{ color: theme === 'light' ? '#7c3aed' : 'inherit' }} />
                           <span>{t.visualChart}</span>
                         </div>
-                        <CanvasBarChart chartSpec={msg.chartSpec} />
+                        <CanvasBarChart chartSpec={msg.chartSpec} theme={theme} />
                       </div>
                     )}
 
