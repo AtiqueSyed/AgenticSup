@@ -114,22 +114,28 @@ async def retrieve_context_node(state: QueryState):
         # Query Neo4j to find which Database and Tables map to these Entities
         if neo4j_driver:
             async with neo4j_driver.session() as session:
-                if db_id and db_id != "selected-db-id":
+                if db_id and db_id != "selected-db-id" and matched_entities:
                     cypher = """
-                    MATCH (db:Database {id: $db_id})-[:HAS_TABLE]->(t:Table)
+                    MATCH (db:Database {id: $db_id})
+                    MATCH (e:Entity) WHERE e.id IN $matched_entities
+                    MATCH (db)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e)
                     OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                    WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                    WITH db, t, e, collect(c) AS all_columns, count(c) AS col_count
+                    WITH db, t, 
+                         [col IN all_columns WHERE col_count <= 5 OR EXISTS((col)-[:REPRESENTS]->(e)) | 
+                          {name: col.name, type: col.type, description: col.description, sample_values: col.sample_values, is_entity_key: col.is_entity_key}] AS columns
                     RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
                     """
-                    neo_res = await session.run(cypher, db_id=db_id)
+                    neo_res = await session.run(cypher, db_id=db_id, matched_entities=matched_entities)
                 elif matched_entities:
                     cypher = """
-                    MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e:Entity)
-                    WHERE e.id IN $matched_entities
-                    WITH DISTINCT db
-                    MATCH (db)-[:HAS_TABLE]->(t:Table)
+                    MATCH (e:Entity) WHERE e.id IN $matched_entities
+                    MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e)
                     OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                    WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                    WITH db, t, e, collect(c) AS all_columns, count(c) AS col_count
+                    WITH db, t, 
+                         [col IN all_columns WHERE col_count <= 5 OR EXISTS((col)-[:REPRESENTS]->(e)) | 
+                          {name: col.name, type: col.type, description: col.description, sample_values: col.sample_values, is_entity_key: col.is_entity_key}] AS columns
                     RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
                     """
                     neo_res = await session.run(cypher, matched_entities=matched_entities)
@@ -143,7 +149,10 @@ async def retrieve_context_node(state: QueryState):
                     cypher_all = """
                     MATCH (db:Database)-[:HAS_TABLE]->(t:Table)
                     OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-                    WITH db, t, collect({name: c.name, type: c.type, description: c.description, sample_values: c.sample_values, is_entity_key: c.is_entity_key}) AS columns
+                    WITH db, t, collect(c) AS all_columns, count(c) AS col_count
+                    WITH db, t, 
+                         [col IN all_columns WHERE col_count <= 5 OR col.is_entity_key = true | 
+                          {name: col.name, type: col.type, description: col.description, sample_values: col.sample_values, is_entity_key: col.is_entity_key}] AS columns
                     RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, collect({name: t.name, columns: columns}) AS tables
                     """
                     neo_res_all = await session.run(cypher_all)
@@ -278,6 +287,8 @@ def validate_results_node(state: QueryState):
 async def synthesize_answer_node(state: QueryState):
     """Takes the question and the raw query results and generates a natural language answer."""
     if state.get("validation_error"):
+        if "ORA-" in state["validation_error"]:
+            return {"synthesized_answer": "I could not find the data you were looking for. Please ask again with more details."}
         return {"synthesized_answer": f"I encountered an error trying to query the database: {state['validation_error']}"}
         
     client = AsyncOpenAI(

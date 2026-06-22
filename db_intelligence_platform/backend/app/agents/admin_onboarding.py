@@ -110,23 +110,23 @@ async def generate_semantics_node(state: OnboardingState):
     extracted_tables = state["extracted_schema"].get("tables", [])
     semantics = {}
     
-    # We serialize the schema minimally to pass to the LLM
+    # We serialize the schema to pass to the LLM including sample values for context
     schema_summary = json.dumps([
-        {"table": t["name"], "columns": [c["name"] for c in t["columns"]]} 
+        {"table": t["name"], "columns": [{"name": c["name"], "type": c.get("type", ""), "samples": c.get("sample_values", [])[:3]} for c in t["columns"]]} 
         for t in extracted_tables
     ])
     
     prompt = f"""
-    Analyze the following database schema and provide a semantic description for each table and its business purpose.
+    Analyze the following database schema (including column data types and sample values) and provide a rich semantic description for each table and its business purpose.
     Return ONLY a valid JSON object where keys are table names and values are the string descriptions.
     
     Example format:
     {{
-      "table_name_1": "Description of table 1",
-      "table_name_2": "Description of table 2"
+      "table_name_1": "Stores detailed records of financial transactions including amounts and timestamps.",
+      "table_name_2": "Manages customer grievance tickets, their resolution status, and assigned officers."
     }}
     
-    Schema:
+    Schema with column samples:
     {schema_summary}
     """
     
@@ -178,43 +178,47 @@ async def identify_entities_node(state: OnboardingState):
         {
             "table": t["name"], 
             "purpose": semantics.get(t["name"], ""),
-            "columns": [c["name"] for c in t["columns"]]
+            "columns": [{"name": c["name"], "type": c.get("type", ""), "samples": c.get("sample_values", [])[:3]} for c in t["columns"]]
         } 
         for t in extracted_tables
     ])
     
     prompt = f"""
-    You are an expert Enterprise Data Architect. Analyze the following database schema and identify the core abstract business Entities (nodes) and Relationships (edges) to construct a Knowledge Graph.
+    You are an expert Enterprise Data Architect. Analyze the tables, columns, and SAMPLE DATA below to identify the core abstract business Entities (nodes) and Relationships (edges) to construct a Knowledge Graph.
     
     CRITICAL INSTRUCTIONS:
-    1. Look beyond just table names. Inspect the columns and the table's "purpose" to identify implicit or embedded business concepts (e.g., an 'Observation' or 'Transaction' that exists inside an 'Inspection' or 'Account' table).
-    2. An Entity does not need to have a 1-to-1 mapping with a table. If a table contains data about multiple distinct concepts (e.g., a Customer and their Address), create separate Entities and map both to that same table.
-    3. Ensure naming is strictly abstract and universal (e.g., use "Customer" instead of "tbl_cust_data").
-    4. GLOBAL KNOWLEDGE GRAPH REUSE: You are building an enterprise-wide graph. Below is a list of 'Existing Entities' that are already in the global graph from other databases. If the schema you are analyzing contains data that maps perfectly to an Existing Entity, you MUST reuse its EXACT `id` instead of inventing a new one! (e.g., if "Bank" exists, use "Bank", do not create "RespondentBank").
+    1. EXHAUSTIVE EXTRACTION: You should extract a HIGH VOLUME of granular entities (expect at least 6-12 entities for a standard database). 
+    2. EXTRACT BOTH PHYSICAL & LOGICAL: Extract physical actors (e.g., Bank, Branch, Officer, Customer, Account) AND logical workflows/concepts (e.g., Grievance, Inspection, Audit, Transaction, Risk).
+    3. NO LAZY TABLE NAMES: Do NOT simply uppercase table names. Synthesize the universal business concept. For example, if a table is "tbl_cust_complaints", the entity is "CustomerGrievance".
+    4. DEEP COLUMN ANALYSIS: Look deeply into the column names and sample data! If a "COMPLAINTS" table has an "assigned_officer" column, you must extract BOTH "Complaint" AND "Officer" as separate entities.
+    5. GLOBAL GRAPH REUSE: Reuse the exact IDs from the 'Existing Entities' list if they conceptually match.
     
-    For each Entity, provide a rich semantic 'description' (this will be vectorized for semantic search), and an array of 'mapped_tables' where data for this entity resides.
-    
-    Return ONLY a valid JSON object in this exact format:
+    Return ONLY a valid JSON object:
     {{
       "entities": [
         {{
-          "id": "Customer",
-          "description": "A person or organization that purchases goods.",
-          "mapped_tables": ["CUSTOMERS", "ORDERS"]
+          "id": "CustomerGrievance",
+          "description": "A formal complaint raised by a customer.",
+          "mapped_tables": ["COMPLAINTS"]
         }},
         {{
-          "id": "Observation",
-          "description": "A specific finding or data point recorded during an inspection.",
-          "mapped_tables": ["INSPECTION_REPORTS"]
+          "id": "BankOfficer",
+          "description": "An employee or official of the bank assigned to handle cases or inspections.",
+          "mapped_tables": ["COMPLAINTS", "INSPECTION_REPORTS"]
+        }},
+        {{
+          "id": "RespondentBank",
+          "description": "A financial institution that is the subject of an inspection or complaint.",
+          "mapped_tables": ["BANKS", "COMPLAINTS"]
         }}
       ],
-      "relationships": [ {{"source": "Customer", "target": "Order", "type": "PLACES"}} ]
+      "relationships": [ {{"source": "BankOfficer", "target": "CustomerGrievance", "type": "INVESTIGATES"}} ]
     }}
     
     Existing Entities in Global Graph:
     {existing_entities_context}
     
-    Schema context (Tables, Purposes, and Columns):
+    Schema context (Tables, Purposes, Columns, and Sample Data):
     {schema_summary}
     """
     
@@ -510,7 +514,7 @@ async def generate_embeddings_node(state: OnboardingState):
                     print(f"Embedding generation failed for '{text_to_embed}': {embed_err}")
                     embedding = [0.001] * 384
                 
-                doc_id = f"{db_id}_{ent.get('id')}"
+                doc_id = ent.get('id')
                 await es_client.index(
                     index=index_name,
                     id=doc_id,
