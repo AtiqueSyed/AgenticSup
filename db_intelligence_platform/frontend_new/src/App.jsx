@@ -13,7 +13,7 @@ export default function App() {
   const [adminActiveTab, setAdminActiveTab] = useState('onboarding'); // 'onboarding' | 'query'
   const [activeTab, setActiveTab] = useState('chat');
   const [lang, setLang] = useState('en');
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState('light');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
   
@@ -68,6 +68,7 @@ export default function App() {
     document.body.className = theme === 'light' ? 'light-theme' : 'dark-theme';
   }, [theme]);
 
+
   if (userRole === null) {
     return <Login onLogin={(role) => setUserRole(role)} />;
   }
@@ -97,12 +98,12 @@ export default function App() {
   }
 
   return (
-    <div className={`app-container ${theme}-theme`}>
+    <div className={`app-container ${theme}-theme${userRole === 'admin' ? ' has-admin-banner' : ''}`}>
       {/* Admin header helper if logged in as admin in query view */}
       {userRole === 'admin' && (
         <div className="admin-query-header flex-center">
           <div className="admin-badge flex-center">
-            <span className="dot pulsing-purple-dot"></span>
+            <span className="admin-session-dot"></span>
             <span>Admin Test Session</span>
           </div>
           <button 

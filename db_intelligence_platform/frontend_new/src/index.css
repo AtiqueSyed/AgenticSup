@@ -1,98 +1,343 @@
-/* CSS Theme and Design Tokens for ChiRAG NL2QL Interface */
+/* ============================================================================
+   ChiRAG — Design tokens
+   Neutral-grey palette on a #5381E6 blue accent, tuned to read like Stripe's
+   dashboard: near-white ground, hairline rules, tight radii, quiet shadows.
+   Light is canonical; dark redefines the same names.
+   Legacy token names are aliased at the bottom so no un-migrated call site
+   can fall back to an undefined variable.
+   ========================================================================= */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-:root, .dark-theme {
-  --bg-primary: #0a0e14;
-  --bg-sidebar: #06090d;
-  --bg-input: #0e121a;
-  --bg-card: #141923;
-  --bg-bubble-user: #1e293b;
-  --bg-bubble-agent: #121820;
-  
-  --border-color: #1e2633;
-  --border-focus: #3b82f6;
-  --border-light: rgba(255, 255, 255, 0.08);
-  
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  
-  --accent-cyan: #06b6d4;
-  --accent-blue: #3b82f6;
-  --accent-purple: #8b5cf6;
-  
-  --rbi-gold: #c5a85c;
-  
-  --bg-submit-btn: #1e293b;
-  --text-submit-btn: #94a3b8;
-  --bg-submit-btn-hover: #ffffff;
-  --text-submit-btn-hover: #000000;
-  --bg-shortcut-btn-hover: #1e293b;
-  --text-shortcut-btn-hover: #ffffff;
-  
-  --bg-hover: rgba(255, 255, 255, 0.05);
-
-  --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  --sidebar-width: 250px;
-  --sidebar-collapsed-width: 72px;
-  --right-sidebar-width: 280px;
+@font-face {
+  font-family: 'General Sans';
+  src: url('/fonts/GeneralSans-Variable.woff2') format('woff2-variations');
+  font-weight: 200 700;
+  font-display: swap;
+  font-style: normal;
 }
 
+:root,
+.dark-theme,
 .light-theme {
-  --bg-primary: #f4f7f9;
-  --bg-sidebar: #ffffff;
-  --bg-input: #ffffff;
-  --bg-card: #ffffff;
-  --bg-bubble-user: #e0e7ff;
-  --bg-bubble-agent: #ffffff;
-  
-  --border-color: #e2e8f0;
-  --border-focus: #4f46e5;
-  --border-light: rgba(0, 0, 0, 0.06);
-  
-  --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-muted: #64748b;
-  
-  --accent-cyan: #0ea5e9;
-  --accent-blue: #4f46e5;
-  --accent-purple: #7c3aed;
-  
-  --rbi-gold: #b48600;
-  
-  --bg-submit-btn: #4f46e5;
-  --text-submit-btn: #ffffff;
-  --bg-submit-btn-hover: #4338ca;
-  --text-submit-btn-hover: #ffffff;
-  --bg-shortcut-btn-hover: #f1f5f9;
-  --text-shortcut-btn-hover: #0f172a;
-  
-  --bg-hover: rgba(0, 0, 0, 0.04);
+  /* Type ---------------------------------------------------------------- */
+  --font-sans: 'General Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+    'Segoe UI', system-ui, Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco,
+    'Cascadia Code', 'Roboto Mono', monospace;
+
+  --fs-1: 11px;
+  --fs-2: 12px;
+  --fs-3: 14px;
+  --fs-4: 15px;
+  --fs-5: 19px;
+  --fs-6: 24px;
+  --fs-7: 32px;
+  --fs-8: 44px;
+
+  --lh-tight: 1.08;
+  --lh-snug: 1.35;
+  --lh-normal: 1.55;
+  --lh-relaxed: 1.7;
+
+  --ls-tighter: -0.03em;
+  --ls-tight: -0.02em;
+  --ls-normal: -0.008em;
+  --ls-wide: 0.1em;
+
+  /* Display weight — Stripe sets its panel and page headings at 600. */
+  --fw-display: 600;
+
+  /* Radius — tight, the way Stripe and Notion round things. A 22px pill on a
+     data panel is what made the old build read as a consumer app. --------- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-2xl: 18px;
+  --r-full: 999px;
+
+  /* Space (4px base) ---------------------------------------------------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+  --s-9: 48px;
+  --s-10: 56px;
+  --s-11: 64px;
+  --s-12: 80px;
+
+  /* Motion -------------------------------------------------------------- */
+  --d-1: 120ms;
+  --d-2: 200ms;
+  --d-3: 320ms;
+  --d-4: 550ms;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --lift: -1px;
+
+  /* Layout -------------------------------------------------------------- */
+  --sidebar-width: 236px;
+  --sidebar-collapsed-width: 68px;
+  --right-sidebar-width: 300px;
+  --header-height: 52px;
 }
 
-/* Base Styles */
-* {
+/* --------------------------------------------------------------------------
+   LIGHT (canonical) — near-white ground, cool neutral ink
+
+   surface-0 is the app ground (sidebar, gutters); surface-1 is white and
+   carries every panel, card and table. Keeping those one step apart is what
+   makes a Stripe screen read as calm: one white plane, one grey behind it.
+   ----------------------------------------------------------------------- */
+:root,
+.light-theme {
+  --surface-0: #f6f8fa;
+  --surface-1: #ffffff;
+  --surface-2: #eef1f5;
+  --surface-3: #e0e4ea;
+  --surface-sunken: #f4f6f9;
+  --surface-inverse: #1a1f36;
+
+  --text: #1a1f36;
+  --text-secondary: #4f566b;
+  --text-muted: #8792a2;
+  --text-inverse: #ffffff;
+
+  --border: rgba(26, 31, 54, 0.10);
+  --border-strong: rgba(26, 31, 54, 0.20);
+  --border-hairline: rgba(26, 31, 54, 0.06);
+
+  /* #5381E6 is the brand blue. It is a fill colour, not a text colour — at
+     3.4:1 on white it fails AA, so --accent-text is the darkened twin used
+     for links, active labels and any blue set on a light surface. */
+  --accent: #5381e6;
+  --accent-hover: #6a92ea;
+  --accent-press: #3f6bd0;
+  --accent-ink: #ffffff;
+  --accent-text: #3d68cc;
+  --accent-soft: rgba(83, 129, 230, 0.10);
+  --accent-ring: rgba(83, 129, 230, 0.40);
+  --focus: #5381e6;
+
+  --ok: #0e7c5a;
+  --ok-soft: rgba(14, 124, 90, 0.10);
+  --warn: #a8620a;
+  --warn-soft: rgba(168, 98, 10, 0.11);
+  --danger: #cf3a35;
+  --danger-soft: rgba(207, 58, 53, 0.10);
+
+  --graph-db: #4a6fc9;
+  --graph-table: #0f7b6c;
+  --graph-column: #a2622a;
+  --graph-entity: #7c5bbf;
+  --graph-edge: rgba(26, 31, 54, 0.18);
+  --graph-edge-active: #5381e6;
+
+  --seal: #5c6470;
+  --scrim: rgba(26, 31, 54, 0.28);
+
+  /* Quiet, neutral, and short-throw. The old --e-3 threw a 60px shadow that
+     made every popover look like it was floating a foot off the page. */
+  --e-1: 0 1px 2px rgba(26, 31, 54, 0.05);
+  --e-2: 0 1px 3px rgba(26, 31, 54, 0.06), 0 1px 2px rgba(26, 31, 54, 0.04);
+  --e-3: 0 12px 32px -12px rgba(26, 31, 54, 0.22), 0 2px 6px rgba(26, 31, 54, 0.05);
+
+  color-scheme: light;
+}
+
+/* --------------------------------------------------------------------------
+   DARK (derived) — cool graphite, same role names
+   ----------------------------------------------------------------------- */
+.dark-theme {
+  --surface-0: #16181d;
+  --surface-1: #1c1f26;
+  --surface-2: #262a33;
+  --surface-3: #333844;
+  --surface-sunken: #101216;
+  --surface-inverse: #f2f4f8;
+
+  --text: #eceef3;
+  --text-secondary: #a3abba;
+  --text-muted: #7b8493;
+  --text-inverse: #16181d;
+
+  --border: rgba(236, 238, 243, 0.11);
+  --border-strong: rgba(236, 238, 243, 0.22);
+  --border-hairline: rgba(236, 238, 243, 0.06);
+
+  /* Inverted from light: the fill stays #5381e6, and --accent-text lightens
+     instead of darkening so blue-on-graphite clears AA. */
+  --accent: #5381e6;
+  --accent-hover: #6f96ec;
+  --accent-press: #4470d4;
+  --accent-ink: #ffffff;
+  --accent-text: #8caaf5;
+  --accent-soft: rgba(83, 129, 230, 0.16);
+  --accent-ring: rgba(83, 129, 230, 0.45);
+  --focus: #5381e6;
+
+  --ok: #45b98c;
+  --ok-soft: rgba(69, 185, 140, 0.14);
+  --warn: #d6963f;
+  --warn-soft: rgba(214, 150, 63, 0.14);
+  --danger: #ef7b74;
+  --danger-soft: rgba(239, 123, 116, 0.14);
+
+  --graph-db: #8aa9f0;
+  --graph-table: #4fb3a0;
+  --graph-column: #d59a63;
+  --graph-entity: #af95e0;
+  --graph-edge: rgba(236, 238, 243, 0.18);
+  --graph-edge-active: #5381e6;
+
+  --seal: #9aa2b1;
+  --scrim: rgba(8, 9, 12, 0.60);
+
+  --e-1: 0 1px 2px rgba(0, 0, 0, 0.40);
+  --e-2: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.30);
+  --e-3: 0 12px 32px -12px rgba(0, 0, 0, 0.70), 0 2px 6px rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------
+   Legacy aliases — keep every pre-existing var() call site valid.
+   ----------------------------------------------------------------------- */
+:root,
+.light-theme,
+.dark-theme {
+  --bg-primary: var(--surface-1);
+  --bg-sidebar: var(--surface-0);
+  --bg-input: var(--surface-1);
+  --bg-card: var(--surface-1);
+  --bg-bubble-user: var(--surface-2);
+  --bg-bubble-agent: var(--surface-1);
+  --bg-hover: var(--surface-2);
+
+  --border-color: var(--border);
+  --border-focus: var(--accent-text);
+  --border-light: var(--border);
+
+  --text-primary: var(--text);
+
+  --accent-cyan: var(--accent-text);
+  --accent-blue: var(--accent-text);
+  --accent-purple: var(--accent-text);
+  --rbi-gold: var(--seal);
+
+  --bg-submit-btn: var(--accent);
+  --text-submit-btn: var(--accent-ink);
+  --bg-submit-btn-hover: var(--accent-hover);
+  --text-submit-btn-hover: var(--accent-ink);
+  --bg-shortcut-btn-hover: var(--surface-2);
+  --text-shortcut-btn-hover: var(--text);
+
+  --font-family: var(--font-sans);
+}
+
+/* ============================================================================
+   Base
+   ========================================================================= */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--font-family);
+  background-color: var(--surface-0);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-3);
+  line-height: var(--lh-normal);
+  letter-spacing: var(--ls-normal);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-synthesis-weight: none;
   overflow: hidden;
   height: 100vh;
   width: 100vw;
 }
 
-/* Scrollbars */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--fw-display);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-tighter);
+  color: var(--text);
+}
+
+input,
+textarea,
+button,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  outline: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+code, pre {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+svg {
+  flex-shrink: 0;
+}
+
+::selection {
+  background: rgba(83, 129, 230, 0.22);
+  color: var(--text);
+}
+
+/* Focus — visible for keyboards, invisible for mice ----------------------- */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* Scrollbars -------------------------------------------------------------- */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -100,85 +345,59 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
+  background: transparent;
+  border-radius: var(--r-full);
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
+*:hover > ::-webkit-scrollbar-thumb,
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: var(--border-strong);
+  background-clip: content-box;
 }
 
-/* Animations */
-@keyframes pulseGlow {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
-  }
-  50% {
-    transform: scale(1.08);
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.7);
-  }
+:hover::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  background-clip: content-box;
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
-@keyframes textPulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
+/* ============================================================================
+   Layout primitives
+   ========================================================================= */
 
-/* App Container Layout */
 .app-container {
   display: flex;
   height: 100vh;
   width: 100vw;
-  background-color: var(--bg-primary);
+  background-color: var(--surface-0);
   position: relative;
   overflow: hidden;
 }
 
-/* Main Content Workspace */
 .main-workspace {
   flex: 1;
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
   overflow: hidden;
   position: relative;
 }
 
-/* Input Fields and Forms */
-input, textarea, button {
-  font-family: var(--font-family);
-}
-
-button {
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: inherit;
-  outline: none;
-}
-
-code {
-  font-family: 'Courier New', Courier, monospace;
-}
-
-/* Utility classes */
 .flex-center {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.text-gradient {
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
+/* ============================================================================
+   Utilities
+   ========================================================================= */
 
 .tooltip {
   position: relative;
@@ -187,22 +406,233 @@ code {
 .tooltip::after {
   content: attr(data-tooltip);
   position: absolute;
-  bottom: 120%;
+  bottom: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  background-color: #000;
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
+  transform: translateX(-50%) translateY(3px);
+  background-color: var(--surface-inverse);
+  color: var(--text-inverse);
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-1);
+  line-height: 1.4;
+  letter-spacing: var(--ls-normal);
   white-space: nowrap;
+  max-width: 260px;
   opacity: 0;
   pointer-events: none;
-  transition: all 0.15s ease;
-  border: 1px solid var(--border-color);
+  transition: opacity var(--d-2) var(--ease), transform var(--d-2) var(--ease-out);
+  box-shadow: var(--e-2);
+  z-index: 200;
 }
 
 .tooltip:hover::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+.animate-spin {
+  animation: spin 900ms linear infinite;
+}
+
+.animate-pulse {
+  animation: breathe 2s var(--ease-in-out) infinite;
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--d-3) var(--ease-out) both;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================================
+   Panel chrome
+
+   This block used to dress every panel as a technical document: a solid amber
+   title bar with ■■■ dots, uppercase wide-tracked crumbs, a sand strip under
+   each exhibit. Stripe and Notion do none of that — a panel announces itself
+   with one line of ordinary sentence-case text and a hairline, and the colour
+   in the interface is spent on the one thing that is actually interactive.
+   The markup is unchanged; only the paint is.
+   ========================================================================= */
+
+.meta-label {
+  font-size: var(--fs-2);
+  font-weight: 500;
+  letter-spacing: var(--ls-normal);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Panel title bar — a quiet header rule, not a coloured band. */
+.panel-titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-5);
+  height: 44px;
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--text);
+  border-bottom: 1px solid var(--border-hairline);
+  border-radius: var(--r-md) var(--r-md) 0 0;
+}
+
+/* The ■■■ glyphs are pure ornament; the markup stays, the paint goes. */
+.panel-titlebar-dots {
+  display: none;
+}
+
+.panel-titlebar-crumb {
+  font-size: var(--fs-3);
+  font-weight: 600;
+  letter-spacing: var(--ls-tight);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Status keeps its dot — it is live state, the one thing worth a colour. */
+.panel-titlebar-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-2);
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.panel-titlebar-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--ok);
+  border-radius: var(--r-full);
+}
+
+/* Figure caption — a hairline and small grey text, no filled strip. */
+.fig-caption {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-5);
+  background: transparent;
+  border-top: 1px solid var(--border-hairline);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  font-size: var(--fs-2);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.fig-caption-right {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Section marker — a tinted chip, the way Stripe badges a status. */
+.section-flag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--s-2);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  border-radius: var(--r-xs);
+  font-size: var(--fs-2);
+  font-weight: 500;
+  letter-spacing: var(--ls-normal);
+}
+
+/* Counter: "3 / 5 connected" over a rule that fills with progress. */
+.progress-rule {
+  height: 2px;
+  background: var(--border);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.progress-rule > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--d-4) var(--ease-out);
+}
+
+/* ============================================================================
+   Masked line reveal
+   Each line sits in an overflow-hidden box; the inner span starts pushed
+   below it and slides up. Padding/negative-margin keeps descenders from
+   being clipped by the mask.
+   ========================================================================= */
+
+.line-reveal > span {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.22em;
+  margin-bottom: -0.22em;
+}
+
+.line-reveal > span > span {
+  display: block;
+  animation: lineUp var(--d-4) var(--ease-out) both;
+}
+
+.line-reveal > span:nth-child(2) > span { animation-delay: 80ms; }
+.line-reveal > span:nth-child(3) > span { animation-delay: 160ms; }
+.line-reveal > span:nth-child(4) > span { animation-delay: 240ms; }
+
+@keyframes lineUp {
+  from { transform: translateY(120%); }
+  to   { transform: none; }
+}
+
+/* Hover lift — the reference moves 2px and casts one wide, low shadow. */
+.is-liftable {
+  transition: transform var(--d-3) var(--ease-out),
+    border-color var(--d-3) var(--ease), box-shadow var(--d-3) var(--ease);
+}
+
+.is-liftable:hover {
+  transform: translateY(var(--lift));
+  border-color: var(--border-strong);
+  box-shadow: var(--e-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .line-reveal > span > span {
+    animation: none !important;
+    transform: none !important;
+  }
+  .is-liftable:hover {
+    transform: none;
+  }
 }

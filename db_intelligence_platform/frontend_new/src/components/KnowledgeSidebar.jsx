@@ -1,5 +1,5 @@
 /* eslint-disable */
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { FileText, Trash2, Info, Plus, FileSpreadsheet, FileCode } from 'lucide-react';
 import { registerDynamicTable } from '../utils/mockData';
 
@@ -27,18 +27,19 @@ export default function KnowledgeSidebar({
 }) {
   const fileInputRef = useRef(null);
   const t = TRANSLATIONS[lang];
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const handleAddFileClick = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e) => {
-    const files = e.target.files;
+  // Shared ingestion path for both the click-to-browse input and drag-and-drop
+  const processFiles = (files) => {
     if (!files || files.length === 0) return;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
+
       // Basic check for file count limit
       if (uploadedFiles.length >= 10) {
         alert("Maximum limit of 10 files reached.");
@@ -47,7 +48,7 @@ export default function KnowledgeSidebar({
 
       // Check if file is CSV/JSON to register as dynamic schema table
       const fileExtension = file.name.split('.').pop().toLowerCase();
-      
+
       if (fileExtension === 'csv') {
         const reader = new FileReader();
         reader.onload = (evt) => {
@@ -66,9 +67,28 @@ export default function KnowledgeSidebar({
 
       setUploadedFiles(prev => [...prev, newFileObj]);
     }
-    
+  };
+
+  const handleFileChange = (e) => {
+    processFiles(e.target.files);
     // Clear file selection value to allow re-uploading same file
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    processFiles(e.dataTransfer.files);
   };
 
   // Basic CSV parser to extract columns and register custom table inside mock db engine
@@ -162,16 +182,22 @@ export default function KnowledgeSidebar({
         )}
       </div>
 
-      {/* Upload Drag and Drop box */}
-      <div className="add-files-dropzone flex-center" onClick={handleAddFileClick}>
+      {/* Upload / drag-and-drop box */}
+      <div
+        className={`add-files-dropzone flex-center${isDragOver ? ' is-drag-over' : ''}`}
+        onClick={handleAddFileClick}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <Plus size={16} />
         <span>{t.addFiles}</span>
         <span className="file-count-fraction">{uploadedFiles.length}/10</span>
-        
-        <input 
-          type="file" 
+
+        <input
+          type="file"
           ref={fileInputRef}
-          style={{ display: 'none' }}
+          className="visually-hidden-input"
           onChange={handleFileChange}
           multiple
           accept=".pdf,.csv,.txt,.xlsx,.json"

@@ -17,8 +17,14 @@ import {
   Check, 
   Code,
   FileSpreadsheet,
-  Search
+  Search,
+  AlertTriangle,
+  ArrowRight
 } from 'lucide-react';
+import { palette } from '../theme';
+import { messageEnter, listEnter } from '../motion';
+
+const CHART_FONT_STACK = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif";
 
 // Lightweight zero-dependency canvas bar chart
 function CanvasBarChart({ chartSpec, theme }) {
@@ -32,14 +38,15 @@ function CanvasBarChart({ chartSpec, theme }) {
     const H = 220;
     canvas.width = W;
     canvas.height = H;
+    const c = palette(theme);
 
     // Extract labels + values from ECharts-style spec
     const labels = chartSpec?.xAxis?.data || [];
     const series = chartSpec?.series || [];
     const values = series[0]?.data || [];
     if (!labels.length || !values.length) {
-      ctx.fillStyle = theme === 'light' ? '#64748b' : '#94a3b8';
-      ctx.font = '13px Inter, sans-serif';
+      ctx.fillStyle = c.textMuted;
+      ctx.font = `13px ${CHART_FONT_STACK}`;
       ctx.fillText('No chart data available', 20, H / 2);
       return;
     }
@@ -52,7 +59,6 @@ function CanvasBarChart({ chartSpec, theme }) {
     const barW = Math.max(6, Math.floor(chartW / labels.length) - 6);
 
     // Background
-    ctx.fillStyle = 'transparent';
     ctx.clearRect(0, 0, W, H);
 
     // Y-axis gridlines
@@ -60,14 +66,14 @@ function CanvasBarChart({ chartSpec, theme }) {
     for (let i = 0; i <= gridLines; i++) {
       const y = pad.top + chartH - (i / gridLines) * chartH;
       ctx.beginPath();
-      ctx.strokeStyle = theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+      ctx.strokeStyle = c.border;
       ctx.lineWidth = 1;
       ctx.moveTo(pad.left, y);
       ctx.lineTo(pad.left + chartW, y);
       ctx.stroke();
       const labelVal = ((maxVal * i) / gridLines).toFixed(0);
-      ctx.fillStyle = theme === 'light' ? '#475569' : '#64748b';
-      ctx.font = '10px Inter, sans-serif';
+      ctx.fillStyle = c.textMuted;
+      ctx.font = `10px ${CHART_FONT_STACK}`;
       ctx.textAlign = 'right';
       ctx.fillText(labelVal, pad.left - 6, y + 3);
     }
@@ -79,36 +85,27 @@ function CanvasBarChart({ chartSpec, theme }) {
       const x = pad.left + idx * (chartW / labels.length) + (chartW / labels.length - barW) / 2;
       const y = pad.top + chartH - bh;
 
-      // Gradient bar
-      const grad = ctx.createLinearGradient(x, y, x, y + bh);
-      grad.addColorStop(0, '#a855f7');
-      grad.addColorStop(1, '#7c3aed');
-      ctx.fillStyle = grad;
+      ctx.fillStyle = c.accent;
       ctx.beginPath();
       ctx.roundRect(x, y, barW, bh, [3, 3, 0, 0]);
       ctx.fill();
 
       // X-label
-      ctx.fillStyle = theme === 'light' ? '#475569' : '#94a3b8';
-      ctx.font = '9px Inter, sans-serif';
+      ctx.fillStyle = c.textSecondary;
+      ctx.font = `9px ${CHART_FONT_STACK}`;
       ctx.textAlign = 'center';
       const shortLabel = String(label).length > 10 ? String(label).slice(0, 9) + '…' : String(label);
       ctx.fillText(shortLabel, x + barW / 2, H - pad.bottom + 14);
 
       // Value on top
-      ctx.fillStyle = theme === 'light' ? '#0f172a' : '#e2e8f0';
-      ctx.font = 'bold 9px Inter, sans-serif';
+      ctx.fillStyle = c.text;
+      ctx.font = `bold 9px ${CHART_FONT_STACK}`;
       ctx.textAlign = 'center';
       ctx.fillText(val.toLocaleString(), x + barW / 2, y - 4);
     });
   }, [chartSpec, theme]);
 
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: '220px', display: 'block' }}
-    />
-  );
+  return <canvas ref={canvasRef} className="chart-canvas" />;
 }
 
 const TRANSLATIONS = {
@@ -241,6 +238,20 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
     };
   }, [settingsRef, entityDropdownRef, entitySetupDropdownRef]);
 
+  // Ease the newest row in rather than having it pop. Reads the DOM only; the
+  // message list itself is untouched.
+  useEffect(() => {
+    const rows = document.querySelectorAll('.chat-thread .chat-message-row');
+    messageEnter(rows[rows.length - 1]);
+  }, [messages.length]);
+
+  // Stagger the welcome suggestions on first paint.
+  useEffect(() => {
+    if (messages.length === 0) {
+      listEnter(document.querySelectorAll('.suggestions-grid .suggestion-chip'), { each: 0.05 });
+    }
+  }, [messages.length]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
@@ -319,7 +330,8 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
       const errMsg = {
         id: Math.random().toString(36).substr(2, 9),
         sender: 'agent',
-        text: `Error processing query: ${error.message}. Please verify the backend is running and databases are onboarded.`,
+        text: `Error processing query: ${error.message.replace(/\.$/, '')}. Please verify the backend is running and databases are onboarded.`,
+        isError: true,
         timestamp: new Date().toLocaleString('en-US', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
       };
       setMessages(prev => [...prev, errMsg]);
@@ -366,21 +378,21 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
 
       // Check for headings: ### Header
       if (content.startsWith('### ')) {
-        return <h4 key={elementKey} className="md-h3" style={{ fontSize: '14px', margin: '12px 0 6px 0', color: 'var(--text-primary)', fontWeight: '600' }}>{content.replace('### ', '')}</h4>;
+        return <h4 key={elementKey} className="md-h3">{content.replace('### ', '')}</h4>;
       }
-      
+
       // Check for bullet lists: * List
       if (content.startsWith('* ')) {
         const itemText = content.replace('* ', '');
         return (
-          <li key={elementKey} className="md-li" style={{ marginLeft: '16px', listStyleType: 'disc', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+          <li key={elementKey} className="md-li">
             {parseBoldText(itemText)}
           </li>
         );
       }
 
       // Default paragraph
-      return <p key={elementKey} className="md-p" style={{ margin: '6px 0', color: 'var(--text-secondary)' }}>{parseBoldText(content)}</p>;
+      return <p key={elementKey} className="md-p">{parseBoldText(content)}</p>;
     });
   };
 
@@ -388,7 +400,7 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
     const parts = text.split(/\*\*(.*?)\*\*/g);
     return parts.map((part, index) => {
       if (index % 2 === 1) {
-        return <strong key={index} className="md-bold" style={{ color: 'var(--text-primary)', fontWeight: '700' }}>{part}</strong>;
+        return <strong key={index} className="md-bold">{part}</strong>;
       }
       return part;
     });
@@ -413,6 +425,16 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
             {/* Section 1: Connected Databases */}
             <div className="db-setup-section">
               <h2 className="db-setup-section-title">Connected Database Tables ({dbList.length})</h2>
+              {dbList.length === 0 && (
+                <div className="db-setup-empty">
+                  <Database size={22} className="db-setup-empty-icon" />
+                  <p className="db-setup-empty-title">No databases connected</p>
+                  <p className="db-setup-empty-hint">
+                    An administrator needs to onboard a schema before it can be queried here.
+                  </p>
+                </div>
+              )}
+
               <div className="db-setup-grid">
                 {dbList.map((db) => {
                   let dbDesc = `Active connected database with ID: ${db.id}`;
@@ -560,7 +582,7 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
               onClick={() => setShowDbSetupPage(false)}
             >
               <span>Proceed to Evaluation Chat</span>
-              <Settings size={14} style={{ marginLeft: '6px' }} />
+              <ArrowRight size={14} />
             </button>
           </div>
         </div>
@@ -575,6 +597,9 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
           <div className="db-status-section flex-center">
             <span className="db-section-title">Connected Databases:</span>
             <div className="db-badges-list flex-center">
+              {dbList.length === 0 && (
+                <span className="db-badge-empty">None connected</span>
+              )}
               {dbList.map((db) => (
                 <div key={db.id} className="db-badge flex-center" title={`Table: ${db.name}`}>
                   <Database size={12} className="db-badge-icon" />
@@ -664,47 +689,30 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
       <div className="chat-messages-container">
         {messages.length === 0 ? (
           <div className="chat-welcome-screen flex-center">
-            <h1 className="welcome-header">
-              {userRole === 'admin' 
-                ? (lang === 'en' ? 'Hello Chirag Admin,' : 'नमस्ते चिराग एडमिन,') 
-                : t.hello
-              }
+            <h1 className="welcome-header line-reveal">
+              <span><span>
+                {userRole === 'admin'
+                  ? (lang === 'en' ? 'Hello Chirag Admin,' : 'नमस्ते चिराग एडमिन,')
+                  : t.hello
+                }
+              </span></span>
             </h1>
-            <h2 className="welcome-subheader">{t.howCanIHelp}</h2>
+            <h2 className="welcome-subheader line-reveal">
+              <span><span>{t.howCanIHelp}</span></span>
+            </h2>
             
             {/* Suggested prompts list inside welcome view */}
-            <div className="suggestions-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', width: '100%', maxWidth: '720px', marginTop: '30px' }}>
+            <div className="suggestions-heading meta-label">Suggested queries</div>
+            <div className="suggestions-grid">
               {SUGGESTIONS.map((s, idx) => (
                 <button
                   key={idx}
                   type="button"
+                  className="suggestion-chip"
                   onClick={() => handleSend(s.text)}
-                  style={{
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    padding: '12px 16px',
-                    textAlign: 'left',
-                    color: 'var(--text-secondary)',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    lineHeight: '1.4',
-                    transition: 'all 0.15s ease',
-                    boxShadow: theme === 'light' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--accent-purple)';
-                    e.currentTarget.style.color = 'var(--text-primary)';
-                    e.currentTarget.style.background = 'var(--bg-hover)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--border-color)';
-                    e.currentTarget.style.color = 'var(--text-secondary)';
-                    e.currentTarget.style.background = 'var(--bg-card)';
-                  }}
                 >
-                  <div style={{ fontWeight: '600', color: '#a855f7', marginBottom: '4px' }}>{s.label}</div>
-                  <div style={{ color: theme === 'light' ? 'var(--text-primary)' : 'inherit' }}>{s.text}</div>
+                  <div className="suggestion-chip-label">{s.label}</div>
+                  <div className="suggestion-chip-text">{s.text}</div>
                 </button>
               ))}
             </div>
@@ -723,11 +731,11 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
 
                 {/* Agent response bubble */}
                 {msg.sender === 'agent' && (
-                  <div className="agent-message-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '720px' }}>
-                    
+                  <div className="agent-message-wrapper">
+
                     {/* Database Routing Badge */}
                     {msg.databaseName && (
-                      <div className="agent-routed-badge flex-center" style={{ alignSelf: 'flex-start', margin: '4px 0 0 16px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', gap: '4px' }}>
+                      <div className="agent-routed-badge flex-center">
                         <Database size={12} />
                         <span>Routed to DB: {msg.databaseName}</span>
                       </div>
@@ -735,22 +743,21 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
 
                     {/* Collapsible Thoughts Trace */}
                     {msg.thoughts && msg.thoughts.length > 0 && (
-                      <div className="agent-thoughts-section" style={{ margin: '4px 16px', border: '1px solid var(--border-light)', borderRadius: '6px', overflow: 'hidden' }}>
+                      <div className="agent-thoughts-section">
                         <button
                           type="button"
                           onClick={() => toggleThoughts(msg.id)}
-                          className="flex-center"
-                          style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-hover)', border: 'none', color: 'var(--text-secondary)', fontSize: '11px', justifyContent: 'space-between', cursor: 'pointer' }}
+                          className="agent-collapsible-toggle flex-center"
                         >
-                          <span className="flex-center" style={{ gap: '6px' }}><Settings size={12} /> {t.agentReasoning}</span>
+                          <span className="flex-center toggle-label"><Settings size={12} /> {t.agentReasoning}</span>
                           {showThoughts[msg.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </button>
                         {showThoughts[msg.id] && (
-                          <div className="thoughts-content-list" style={{ padding: '10px 12px', background: 'var(--bg-card)', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div className="thoughts-content-list">
                             {msg.thoughts.map((step, idx) => (
-                              <div key={idx} style={{ borderLeft: '2px solid #a855f7', paddingLeft: '8px' }}>
-                                <strong style={{ color: '#a855f7' }}>{step.step}: </strong>
-                                <span style={{ color: 'var(--text-secondary)' }}>{step.desc}</span>
+                              <div key={idx} className="thought-item">
+                                <strong className="thought-step-label">{step.step}: </strong>
+                                <span className="thought-step-desc">{step.desc}</span>
                               </div>
                             ))}
                           </div>
@@ -760,39 +767,27 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
 
                     {/* Collapsible SQL Query Block */}
                     {msg.sql && (
-                      <div className="agent-sql-section" style={{ margin: '4px 16px', border: '1px solid var(--border-light)', borderRadius: '6px', overflow: 'hidden' }}>
+                      <div className="agent-sql-section">
                         <button
                           type="button"
                           onClick={() => {
                             const key = `sql_${msg.id}`;
                             setShowThoughts(prev => ({ ...prev, [key]: !prev[key] }));
                           }}
-                          className="flex-center"
-                          style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-hover)', border: 'none', color: 'var(--text-secondary)', fontSize: '11px', justifyContent: 'space-between', cursor: 'pointer' }}
+                          className="agent-collapsible-toggle flex-center"
                         >
-                          <span className="flex-center" style={{ gap: '6px' }}><Code size={12} /> {t.sqlQuery}</span>
+                          <span className="flex-center toggle-label"><Code size={12} /> {t.sqlQuery}</span>
                           {showThoughts[`sql_${msg.id}`] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                         </button>
                         {showThoughts[`sql_${msg.id}`] && (
-                          <div className="sql-code-block" style={{ padding: '12px', background: 'var(--bg-primary)', position: 'relative', borderTop: '1px solid var(--border-light)' }}>
-                            <pre style={{ margin: 0, fontFamily: 'monospace', color: 'var(--accent-cyan)', fontSize: '12px', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                          <div className="sql-code-block">
+                            <pre>
                               <code>{msg.sql}</code>
                             </pre>
                             <button
                               type="button"
                               onClick={() => handleCopyText(msg.sql, `sql_${msg.id}`)}
-                              style={{
-                                position: 'absolute',
-                                top: '8px',
-                                right: '8px',
-                                background: 'var(--bg-card)',
-                                border: '1px solid var(--border-light)',
-                                color: 'var(--text-secondary)',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                fontSize: '10px',
-                                cursor: 'pointer'
-                              }}
+                              className="copy-sql-btn"
                             >
                               {copiedMsgId === `sql_${msg.id}` ? 'Copied!' : t.copysql}
                             </button>
@@ -802,45 +797,50 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
                     )}
 
                     {/* Natural language answer text */}
-                    <div className="agent-text-bubble">
-                      {renderMarkdown(msg.text)}
+                    <div className={`agent-text-bubble${msg.isError ? ' is-error' : ''}`}>
+                      {msg.isError && <AlertTriangle size={15} className="agent-error-icon" />}
+                      <div className="agent-text-body">{renderMarkdown(msg.text)}</div>
                     </div>
 
                     {/* Interactive SQL Output Rows table */}
                     {msg.rows && msg.rows.length > 0 && (
-                      <div className="agent-table-section" style={{ margin: '8px 16px', border: '1px solid var(--border-light)', borderRadius: '8px', overflow: 'hidden' }}>
-                        <div className="table-header-title flex-center" style={{ padding: '8px 12px', background: 'var(--bg-hover)', color: 'var(--text-secondary)', fontSize: '11px', borderBottom: '1px solid var(--border-light)', gap: '6px', justifyContent: 'flex-start' }}>
-                          <FileSpreadsheet size={12} style={{ color: theme === 'light' ? '#7c3aed' : 'inherit' }} />
+                      <div className="agent-table-section">
+                        <div className="table-header-title flex-center">
+                          <FileSpreadsheet size={12} />
                           <span>{t.queryResults} ({msg.rows.length} rows)</span>
                         </div>
-                        <div style={{ overflowX: 'auto', maxHeight: '200px' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '11px' }}>
+                        <div className="table-scroll-container">
+                          <table className="results-table">
                             <thead>
-                              <tr style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-light)' }}>
+                              <tr>
                                 {msg.columns.map(col => (
-                                  <th key={col} style={{ padding: '8px 12px', fontWeight: '600' }}>{col}</th>
+                                  <th key={col}>{col}</th>
                                 ))}
                               </tr>
                             </thead>
                             <tbody>
                               {msg.rows.map((row, idx) => (
-                                <tr key={idx} style={{ borderBottom: '1px solid var(--border-light)', background: idx % 2 === 0 ? 'transparent' : 'var(--bg-hover)' }}>
+                                <tr key={idx}>
                                   {msg.columns.map(col => (
-                                    <td key={col} style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>{String(row[col] ?? '')}</td>
+                                    <td key={col}>{String(row[col] ?? '')}</td>
                                   ))}
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
+                        <div className="fig-caption">
+                          <span>{msg.rows.length} rows &times; {msg.columns.length} columns</span>
+                          <span className="fig-caption-right">Query result</span>
+                        </div>
                       </div>
                     )}
 
                     {/* Canvas Bar Chart Visualizations */}
                     {msg.chartSpec && (
-                      <div className="agent-chart-section" style={{ margin: '8px 16px', border: '1px solid var(--border-light)', borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-card)', padding: '16px', backdropFilter: 'blur(8px)', boxShadow: theme === 'light' ? '0 4px 6px -1px rgba(0,0,0,0.05)' : 'none' }}>
-                        <div className="chart-header-title flex-center" style={{ margin: '0 0 12px 0', color: 'var(--text-secondary)', fontSize: '11px', gap: '6px', justifyContent: 'flex-start' }}>
-                          <BarChart2 size={12} style={{ color: theme === 'light' ? '#7c3aed' : 'inherit' }} />
+                      <div className="agent-chart-section">
+                        <div className="chart-header-title flex-center">
+                          <BarChart2 size={12} />
                           <span>{t.visualChart}</span>
                         </div>
                         <CanvasBarChart chartSpec={msg.chartSpec} theme={theme} />
@@ -886,7 +886,11 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
             {/* Pulsing Loading Status */}
             {isLoading && (
               <div className="loading-state-container">
-                <span className="pulsing-dot-spinner"></span>
+                <span className="loading-dots">
+                  <span className="pulsing-dot-spinner"></span>
+                  <span className="pulsing-dot-spinner"></span>
+                  <span className="pulsing-dot-spinner"></span>
+                </span>
                 <span className="loading-text-label">{t.findingSolution}...</span>
               </div>
             )}
@@ -909,10 +913,9 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
             </button>
           )}
           {!myFilesChecked && (
-            <button 
+            <button
               className="data-filter-badge flex-center disabled"
               onClick={() => setMyFilesChecked(true)}
-              style={{ marginLeft: '8px' }}
             >
               <span>Disabled: My Files</span>
               <span className="badge-close-x">×</span>
@@ -922,9 +925,6 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
 
         <div className="query-capsule-input-container">
           <div className="left-input-actions flex-center">
-            <button className="input-shortcut-btn flex-center" title="Attach Files Context">
-              <Plus size={18} />
-            </button>
             <div className="settings-dropdown-wrapper" ref={settingsRef}>
               <button 
                 className="input-shortcut-btn flex-center" 
@@ -935,7 +935,7 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
               </button>
               {showSettingsDropdown && (
                 <div className="settings-context-dropdown">
-                  <span className="dropdown-label">SEARCH</span>
+                  <span className="dropdown-label">Search</span>
                   <label className="dropdown-checkbox-item">
                     <input 
                       type="checkbox" 
@@ -957,7 +957,7 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
                     <span>My Files</span>
                   </label>
 
-                  <span className="dropdown-label" style={{ marginTop: '4px' }}>DATABASE</span>
+                  <span className="dropdown-label">Database</span>
                   <label className="dropdown-checkbox-item">
                     <input 
                       type="checkbox" 
@@ -977,9 +977,10 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
             </div>
           </div>
           
-          <input 
-            type="text" 
-            placeholder={t.typeQuery} 
+          <input
+            type="text"
+            className="query-capsule-input"
+            placeholder={t.typeQuery}
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             onKeyDown={(e) => {

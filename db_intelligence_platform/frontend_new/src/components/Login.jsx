@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Shield, User, Lock, ArrowRight, Activity } from 'lucide-react';
+import { Shield, User, Lock, ArrowRight } from 'lucide-react';
+import BrandMark from './BrandMark';
 
 export default function Login({ onLogin }) {
   const [role, setRole] = useState('user'); // 'user' or 'admin'
@@ -30,18 +31,37 @@ export default function Login({ onLogin }) {
 
   return (
     <div className="login-page-container">
-      {/* Dynamic Background Effects */}
-      <div className="login-bg-glow blob-1"></div>
-      <div className="login-bg-glow blob-2"></div>
-      <div className="login-bg-grid"></div>
-
-      <div className="login-card-wrapper">
-        <div className="login-card-header">
-          <div className="login-logo-circle flex-center">
-            <Activity className="login-logo-icon" size={24} />
+      <div className="login-frame">
+        {/* Left: the masthead. */}
+        <div className="login-masthead">
+          <div className="login-masthead-top">
+            <div className="login-logo-circle flex-center" aria-hidden="true">
+              <BrandMark size={22} tone="var(--accent-ink)" />
+            </div>
+            <span className="meta-label">Reserve Bank of India</span>
           </div>
-          <h1 className="login-title">AGENTIC SUPERVISORY SUITE</h1>
-          <p className="login-subtitle">Automatic Context Engineering & Compliance Audits</p>
+
+          <h1 className="login-title line-reveal">
+            <span><span>Agentic</span></span>
+            <span><span>Supervisory Suite</span></span>
+          </h1>
+          <p className="login-subtitle">
+            Automatic context engineering and compliance audits, over the
+            supervisory data estate.
+          </p>
+
+          <div className="login-masthead-meta">
+            <span className="meta-label">ChiRAG</span>
+            <span className="meta-label">Gen Beta</span>
+          </div>
+        </div>
+
+        {/* Right: the sign-in panel. */}
+        <div className="login-card-wrapper">
+        <div className="panel-titlebar">
+          <span className="panel-titlebar-dots" aria-hidden="true"><i /><i /><i /></span>
+          <span className="panel-titlebar-crumb">Sign in</span>
+          <span className="panel-titlebar-status">Secure</span>
         </div>
 
         {/* Role Selector Tabs */}
@@ -119,6 +139,7 @@ export default function Login({ onLogin }) {
 
         <div className="login-card-footer">
           <span>Secured by Advanced Role-Based Entitlements</span>
+        </div>
         </div>
       </div>
     </div>

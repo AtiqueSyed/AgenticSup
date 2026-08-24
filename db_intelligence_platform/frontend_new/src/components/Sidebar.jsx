@@ -17,6 +17,7 @@ import {
   Trash2,
   LogOut
 } from 'lucide-react';
+import BrandMark from './BrandMark';
 
 const TRANSLATIONS = {
   en: {
@@ -127,9 +128,8 @@ export default function Sidebar({
       {/* Sidebar Header */}
       <div className="sidebar-header">
         <div className="logo-section">
-          {/* Pulsing ChiRAG logo circle */}
-          <div className="logo-ring">
-            <div className="logo-dots"></div>
+          <div className="brand-mark flex-center" aria-hidden="true">
+            <BrandMark size={18} tone="var(--accent-ink)" />
           </div>
           {!isCollapsed && (
             <div className="logo-text-container">
@@ -171,35 +171,50 @@ export default function Sidebar({
             </button>
           </li>
 
-          <li className={activeTab === 'news' ? 'active' : ''}>
+          <li
+            className={`nav-unavailable tooltip ${activeTab === 'news' ? 'active' : ''}`}
+            data-tooltip="Coming soon"
+          >
             <button onClick={() => handleNavClick('news')}>
               <Newspaper size={18} className="nav-icon" />
               {!isCollapsed && <span>{t.news}</span>}
             </button>
           </li>
 
-          <li className={activeTab === 'instruct' ? 'active' : ''}>
+          <li
+            className={`nav-unavailable tooltip ${activeTab === 'instruct' ? 'active' : ''}`}
+            data-tooltip="Coming soon"
+          >
             <button onClick={() => handleNavClick('instruct')}>
               <Wrench size={18} className="nav-icon" />
               {!isCollapsed && <span>{t.instruct}</span>}
             </button>
           </li>
 
-          <li className={activeTab === 'team' ? 'active' : ''}>
+          <li
+            className={`nav-unavailable tooltip ${activeTab === 'team' ? 'active' : ''}`}
+            data-tooltip="Coming soon"
+          >
             <button onClick={() => handleNavClick('team')}>
               <Users size={18} className="nav-icon" />
               {!isCollapsed && <span>{t.team}</span>}
             </button>
           </li>
 
-          <li className={activeTab === 'feedback' ? 'active' : ''}>
+          <li
+            className={`nav-unavailable tooltip ${activeTab === 'feedback' ? 'active' : ''}`}
+            data-tooltip="Coming soon"
+          >
             <button onClick={() => handleNavClick('feedback')}>
               <MessageSquareWarning size={18} className="nav-icon" />
               {!isCollapsed && <span>{t.feedback}</span>}
             </button>
           </li>
 
-          <li className={activeTab === 'guide' ? 'active' : ''}>
+          <li
+            className={`nav-unavailable tooltip ${activeTab === 'guide' ? 'active' : ''}`}
+            data-tooltip="Coming soon"
+          >
             <button onClick={() => handleNavClick('guide')}>
               <BookOpen size={18} className="nav-icon" />
               {!isCollapsed && <span>{t.guide}</span>}
@@ -236,7 +251,7 @@ export default function Sidebar({
           {/* Logout Button */}
           {onLogout && (
             <li>
-              <button onClick={onLogout} style={{ color: '#ef4444' }}>
+              <button className="nav-logout" onClick={onLogout}>
                 <LogOut size={18} className="nav-icon" />
                 {!isCollapsed && <span>Logout</span>}
               </button>
@@ -248,18 +263,24 @@ export default function Sidebar({
       {/* RBI Logo Footer */}
       <div className="sidebar-footer">
         <div className="rbi-seal-container flex-center">
-          <svg className="rbi-seal-svg" viewBox="0 0 100 100" width="42" height="42">
-            <circle cx="50" cy="50" r="46" fill="transparent" stroke="var(--rbi-gold)" strokeWidth="2.5" />
-            <circle cx="50" cy="50" r="42" fill="transparent" stroke="var(--rbi-gold)" strokeWidth="1" />
-            <path d="M 50,15 C 32,15 25,32 25,50 C 25,68 32,85 50,85 C 68,85 75,68 75,50 C 75,32 68,15 50,15 Z" fill="transparent" stroke="var(--rbi-gold)" strokeWidth="1.5" strokeDasharray="3,3" />
-            <text id="rbi-seal-text" fill="var(--rbi-gold)" fontSize="7" fontWeight="bold" textAnchor="middle">
-              <textPath href="#rbi-seal-text-path" startOffset="50%">RESERVE BANK OF INDIA</textPath>
+          <svg viewBox="0 0 100 100" width="42" height="42" role="img" aria-label="Reserve Bank of India seal">
+            <circle cx="50" cy="50" r="46" fill="none" stroke="var(--seal)" strokeWidth="1.6" />
+            <circle cx="50" cy="50" r="40" fill="none" stroke="var(--seal)" strokeWidth="1" />
+            <path id="rbi-seal-arc" d="M 18,50 A 32,32 0 1,1 82,50" fill="none" />
+            <text fill="var(--seal)" fontSize="6.2" fontWeight="600" textAnchor="middle" style={{ letterSpacing: '0.09em' }}>
+              <textPath href="#rbi-seal-arc" startOffset="50%">RESERVE BANK OF INDIA</textPath>
             </text>
-            <path id="rbi-seal-text-path" d="M 20,50 A 30,30 0 1,1 80,50" fill="none" />
-            {/* Minimal stylized lion emblem silhouette inside seal */}
-            <path d="M 44,40 C 44,38 48,34 50,34 C 52,34 56,38 56,40 C 56,45 54,48 54,54 C 54,60 52,65 52,68 C 50,68 49,66 48,65 L 46,65 C 46,60 44,52 44,40 Z" fill="var(--rbi-gold)" />
-            <path d="M 40,55 C 38,55 37,58 37,60 C 37,62 39,63 41,63 C 43,63 43,60 43,58 Z" fill="var(--rbi-gold)" />
-            <path d="M 60,55 C 62,55 63,58 63,60 C 63,62 61,63 59,63 C 57,63 57,60 57,58 Z" fill="var(--rbi-gold)" />
+            {/* Palm tree, abstracted */}
+            <line x1="50" y1="65" x2="50" y2="52" stroke="var(--seal)" strokeWidth="1.4" strokeLinecap="round" />
+            <path d="M50,52 L42,46" stroke="var(--seal)" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+            <path d="M50,52 L46,43" stroke="var(--seal)" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+            <path d="M50,52 L50,42" stroke="var(--seal)" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+            <path d="M50,52 L54,43" stroke="var(--seal)" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+            <path d="M50,52 L58,46" stroke="var(--seal)" strokeWidth="1.3" strokeLinecap="round" fill="none" />
+            {/* Tiger, abstracted silhouette */}
+            <ellipse cx="50" cy="69" rx="9.5" ry="3" fill="var(--seal)" />
+            <path d="M 41,68 L 37.5,65.5 L 41,66.5 Z" fill="var(--seal)" />
+            <path d="M 59,70.5 Q 64,72.5 62,67.5" stroke="var(--seal)" strokeWidth="1.1" fill="none" strokeLinecap="round" />
           </svg>
         </div>
         {!isCollapsed && (

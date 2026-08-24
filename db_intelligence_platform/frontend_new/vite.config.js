@@ -15,6 +15,5 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['reactflow'],
-    exclude: ['echarts-for-react', 'echarts'],
   },
 })

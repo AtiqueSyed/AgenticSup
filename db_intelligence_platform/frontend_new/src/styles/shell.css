@@ -1,0 +1,752 @@
+/* Shell: sidebar navigation, recent-chats popover, login. */
+
+/* ============================================================================
+   SIDEBAR PANEL
+   ========================================================================= */
+
+.sidebar {
+  width: var(--sidebar-width);
+  height: 100%;
+  background-color: var(--surface-0);
+  border-right: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  transition: width var(--d-2) var(--ease);
+  position: relative;
+  z-index: 100;
+}
+
+.sidebar.collapsed {
+  width: var(--sidebar-collapsed-width);
+}
+
+/* No rule under the logo. Stripe lets the sidebar read as one column and
+   spends its dividers on the boundary with the content, not inside itself. */
+.sidebar-header {
+  padding: 0 var(--s-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--header-height);
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  overflow: hidden;
+}
+
+/* ChiRAG brand mark: a monoline chi (χ), the letterform inside the product
+   name, in a static square tile. No gradient, no glow, no motion. */
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  background-color: var(--accent);
+}
+
+.logo-text-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1;
+}
+
+.gen-beta-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  color: var(--text-secondary);
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  border-radius: var(--r-full);
+  width: fit-content;
+}
+
+.logo-text {
+  font-size: var(--fs-4);
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: var(--ls-tighter);
+}
+
+.toggle-sidebar-btn {
+  color: var(--text-secondary);
+  padding: 6px;
+  border-radius: var(--r-sm);
+  transition: background-color var(--d-1) var(--ease), color var(--d-1) var(--ease);
+}
+
+.toggle-sidebar-btn:hover {
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+
+/* --- Navigation -------------------------------------------------------- */
+
+.sidebar-nav {
+  flex: 1;
+  padding: var(--s-2) var(--s-2);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar-nav ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-nav li {
+  position: relative;
+  border-radius: var(--r-sm);
+}
+
+.sidebar-nav li button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  font-size: var(--fs-3);
+  font-weight: 500;
+  text-align: left;
+  transition: background-color var(--d-1) var(--ease), color var(--d-1) var(--ease);
+  white-space: nowrap;
+}
+
+/* The old build led every item with a small square bullet and marked the
+   active one with an inset amber bar plus a shadow — three markers for one
+   piece of state. Stripe uses exactly one: the label and its icon turn blue
+   on a faint blue wash. Nothing else in the rail carries colour. */
+.sidebar-nav li:hover button {
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+
+.sidebar-nav li.active button {
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.sidebar-nav li.active button:hover {
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* The icon is a child, so it inherits the blue with the label. */
+.sidebar-nav li.active .nav-icon {
+  color: var(--accent-text);
+}
+
+/* Five nav items with no destination anywhere in the app: reduced emphasis,
+   handler stays wired, tooltip explains why nothing happens. */
+/* Sections that exist in the nav but have nothing behind them yet.
+   Dimmed enough to read as "not yet", not so dim it looks broken. */
+.nav-unavailable button {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.nav-unavailable:hover button {
+  background-color: var(--surface-2);
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.nav-unavailable.active button {
+  background-color: var(--surface-2);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.nav-logout {
+  color: var(--danger);
+}
+
+.nav-icon {
+  flex-shrink: 0;
+}
+
+.nav-divider {
+  border: 0;
+  height: 1px;
+  background-color: var(--border-hairline);
+  margin: var(--s-3) var(--s-1);
+}
+
+/* --- RBI emblem footer -------------------------------------------------- */
+
+.sidebar-footer {
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  background-color: transparent;
+  height: 64px;
+  overflow: hidden;
+}
+
+.rbi-seal-container {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+}
+
+.rbi-text-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+
+.rbi-caption-hi {
+  font-size: var(--fs-1);
+  font-weight: 600;
+  color: var(--seal);
+  line-height: var(--lh-tight);
+}
+
+.rbi-caption-en {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--seal);
+  letter-spacing: var(--ls-wide);
+  text-transform: uppercase;
+}
+
+/* ============================================================================
+   RECENT CHATS POPOVER
+   ========================================================================= */
+
+.recent-chats-popover {
+  position: absolute;
+  top: 64px;
+  width: 280px;
+  max-height: 480px;
+  background-color: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e-3);
+  padding: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  z-index: 200;
+  animation: popoverIn var(--d-3) var(--ease-out) both;
+}
+
+@keyframes popoverIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fs-3);
+  font-weight: 600;
+  color: var(--text);
+  padding: 0 var(--s-1);
+}
+
+.delete-all-chats {
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: var(--r-xs);
+  transition: background-color var(--d-1) var(--ease), color var(--d-1) var(--ease);
+}
+
+.delete-all-chats:hover {
+  background-color: var(--danger-soft);
+  color: var(--danger);
+}
+
+.popover-search {
+  position: relative;
+  width: 100%;
+}
+
+.popover-search .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.popover-search input {
+  width: 100%;
+  background-color: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 10px 8px 32px;
+  font-size: var(--fs-3);
+  color: var(--text);
+  outline: none;
+  transition: border-color var(--d-1) var(--ease);
+}
+
+.popover-search input:focus {
+  border-color: var(--accent);
+}
+
+.popover-chat-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-right: 2px;
+}
+
+.chat-date-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.date-group-header {
+  font-size: var(--fs-2);
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: var(--ls-normal);
+  margin-bottom: 2px;
+  padding-left: 6px;
+}
+
+.popover-chat-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  border-radius: var(--r-xs);
+  transition: background-color var(--d-1) var(--ease);
+  width: 100%;
+  overflow: hidden;
+}
+
+.popover-chat-item-row:hover {
+  background-color: var(--surface-2);
+}
+
+.popover-chat-item-btn {
+  flex: 1;
+  text-align: left;
+  font-size: var(--fs-3);
+  color: var(--text-secondary);
+  padding: 8px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--d-1) var(--ease);
+}
+
+.popover-chat-item-btn:hover {
+  color: var(--text);
+}
+
+.delete-chat-session-btn {
+  color: var(--text-muted);
+  padding: 6px;
+  border-radius: var(--r-xs);
+  opacity: 0;
+  transition: opacity var(--d-1) var(--ease), background-color var(--d-1) var(--ease), color var(--d-1) var(--ease);
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.popover-chat-item-row:hover .delete-chat-session-btn {
+  opacity: 1;
+}
+
+.delete-chat-session-btn:hover {
+  color: var(--danger);
+  background-color: var(--danger-soft);
+}
+
+.popover-empty-state {
+  font-size: var(--fs-2);
+  color: var(--text-muted);
+  text-align: center;
+  padding: var(--s-4) 0;
+}
+
+/* ============================================================================
+   LOGIN
+   ========================================================================= */
+
+.login-page-container {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--surface-0);
+  align-items: stretch;
+  padding: 0 var(--s-6);
+  overflow: auto;
+}
+
+/* The reference frames its page between two full-height hairlines. Here that
+   frame carries the masthead on the left and the sign-in panel on the right. */
+.login-frame {
+  width: 100%;
+  max-width: 1040px;
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: var(--s-12);
+  align-items: center;
+  align-content: center;
+  min-height: 100vh;
+  padding: var(--s-9) var(--s-8);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+  .login-frame {
+    grid-template-columns: 1fr;
+    gap: var(--s-8);
+    max-width: 480px;
+    padding: var(--s-6) var(--s-5);
+  }
+}
+
+/* --- Masthead ----------------------------------------------------------- */
+
+.login-masthead {
+  min-width: 0;
+  animation: loginIn var(--d-4) var(--ease-out) both;
+}
+
+.login-masthead-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-7);
+}
+
+.login-masthead-meta {
+  display: flex;
+  gap: var(--s-5);
+  margin-top: var(--s-8);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border);
+}
+
+.login-card-wrapper {
+  width: 100%;
+  background-color: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e-2);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  animation: loginIn var(--d-4) var(--ease-out) both;
+  animation-delay: 100ms;
+}
+
+/* The titlebar is flush to the panel edge; everything after it is inset. */
+.login-card-wrapper > *:not(.panel-titlebar) {
+  margin-left: var(--s-7);
+  margin-right: var(--s-7);
+}
+
+.login-card-wrapper > .panel-titlebar {
+  border-radius: 0;
+  margin-bottom: var(--s-7);
+}
+
+.login-card-wrapper > .login-card-footer {
+  margin-bottom: var(--s-7);
+}
+
+@keyframes loginIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.login-logo-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  background-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.login-title {
+  font-size: clamp(34px, 5vw, 56px);
+  font-weight: var(--fw-display);
+  letter-spacing: var(--ls-tighter);
+  line-height: 1.04;
+  color: var(--text);
+  margin-bottom: var(--s-5);
+}
+
+.login-subtitle {
+  font-size: var(--fs-4);
+  line-height: var(--lh-snug);
+  color: var(--text-secondary);
+  font-weight: 400;
+  max-width: 38ch;
+}
+
+/* --- Role selector tabs -------------------------------------------------- */
+
+.role-selector-container {
+  display: flex;
+  gap: var(--s-3);
+  margin-bottom: var(--s-7);
+}
+
+.role-select-btn {
+  flex: 1;
+  padding: var(--s-3) var(--s-4);
+  background-color: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  transition: background-color var(--d-2) var(--ease), border-color var(--d-2) var(--ease);
+  text-align: left;
+}
+
+.role-select-btn:hover {
+  background-color: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.role-select-btn.active {
+  background-color: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.role-icon {
+  color: var(--text-muted);
+  transition: color var(--d-2) var(--ease);
+}
+
+.role-select-btn.active .role-icon {
+  color: var(--accent);
+}
+
+.role-btn-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.role-title-label {
+  font-size: var(--fs-3);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.role-select-btn.active .role-title-label {
+  color: var(--text);
+}
+
+.role-subtitle-label {
+  font-size: var(--fs-1);
+  color: var(--text-muted);
+}
+
+/* --- Form ---------------------------------------------------------------- */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.form-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.input-label-tag {
+  font-size: var(--fs-2);
+  font-weight: 500;
+  letter-spacing: var(--ls-normal);
+  color: var(--text-secondary);
+}
+
+.input-field-wrapper {
+  background-color: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 0 var(--s-4);
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  transition: border-color var(--d-2) var(--ease), box-shadow var(--d-2) var(--ease);
+}
+
+.input-field-wrapper:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.input-field-icon {
+  color: var(--text-muted);
+}
+
+.login-text-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: var(--fs-4);
+  color: var(--text);
+  width: 100%;
+}
+
+.login-text-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-submit-btn {
+  height: 48px;
+  background-color: var(--accent);
+  border: none;
+  border-radius: var(--r-md);
+  color: var(--accent-ink);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: var(--s-2);
+  transition: background-color var(--d-1) var(--ease);
+  gap: var(--s-2);
+}
+
+.login-submit-btn:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+}
+
+.login-submit-btn:active:not(:disabled) {
+  background-color: var(--accent-press);
+}
+
+.login-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.submit-arrow-icon {
+  transition: transform var(--d-1) var(--ease);
+}
+
+.login-submit-btn:hover .submit-arrow-icon {
+  transform: translateX(3px);
+}
+
+.login-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: var(--accent-ink);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.login-card-footer {
+  text-align: center;
+  margin-top: var(--s-6);
+  font-size: var(--fs-2);
+  color: var(--text-muted);
+  letter-spacing: var(--ls-normal);
+}
+
+/* --------------------------------------------------------------------------
+   Admin test-session banner
+   Rendered by App.jsx when an admin is using the query workspace. It sits
+   absolutely so it does not become a column in the .app-container flex row;
+   the matching padding-top on the container keeps it from covering the
+   workspace header the way the previous version did.
+   ----------------------------------------------------------------------- */
+.app-container.has-admin-banner {
+  padding-top: 36px;
+}
+
+.admin-query-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  padding: 0 var(--s-4);
+  justify-content: space-between;
+  background-color: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-2);
+  z-index: 60;
+}
+
+.admin-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-weight: 500;
+  letter-spacing: var(--ls-normal);
+}
+
+.admin-session-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.admin-dashboard-btn {
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--r-sm);
+  background-color: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--fs-1);
+  font-weight: 500;
+  transition: background-color var(--d-1) var(--ease),
+              border-color var(--d-1) var(--ease);
+}
+
+.admin-dashboard-btn:hover {
+  background-color: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+/* The collapsed rail centres the bare icon. */
+.sidebar.collapsed .sidebar-nav li button {
+  justify-content: center;
+  padding: 8px;
+}
+
+/* 68px of rail cannot hold the brand tile and the toggle side by side — the
+   tile was being clipped to a blue sliver by .logo-section's overflow. In the
+   rail the toggle is the only control that matters, so it gets the width. */
+.sidebar.collapsed .sidebar-header {
+  padding: 0;
+  justify-content: center;
+}
+
+.sidebar.collapsed .logo-section {
+  display: none;
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Database, 
   Terminal, 
@@ -27,8 +27,36 @@ import ReactFlow, {
   useEdgesState
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { palette, radius, space, fontSize } from '../theme';
+
+/* Preview-graph node/edge visuals — driven by the --graph-db / --graph-entity
+   tokens instead of hand-tuned rgba + blur. Used by positionNodes(), the
+   theme-change effect, and fetchGraphData()'s edge mapping. */
+function buildAceNodeStyle(isDb, c) {
+  const hue = isDb ? c.graphDb : c.graphEntity;
+  return {
+    background: c.surface1,
+    color: c.text,
+    border: `1px solid ${hue}`,
+    borderRadius: radius.md,
+    padding: `${space[2]} ${space[4]}`,
+    fontSize: fontSize[2],
+    fontWeight: '600',
+    boxShadow: c.e1,
+    minWidth: '150px',
+    textAlign: 'center',
+  };
+}
+
+function buildAceEdgeVisual(c) {
+  return {
+    style: { stroke: c.graphEdge, strokeWidth: 2 },
+    labelStyle: { fill: c.textSecondary, fontSize: 10, fontWeight: 500, background: c.surface1, padding: '2px 4px' },
+  };
+}
 
 export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActiveTab, theme, toggleTheme }) {
+  const c = useMemo(() => palette(theme), [theme]);
   const [sourceType, setSourceType] = useState('structured'); // 'structured' or 'unstructured'
   
   // Structured form inputs
@@ -99,27 +127,14 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
   useEffect(() => {
     setNodes(prevNodes => prevNodes.map(node => ({
       ...node,
-      style: {
-        ...node.style,
-        background: theme === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(20, 25, 35, 0.95)',
-        color: theme === 'light' ? '#0f172a' : '#ffffff',
-        boxShadow: theme === 'light' ? '0 4px 12px rgba(0,0,0,0.08)' : '0 8px 16px -2px rgba(0,0,0,0.5)',
-      }
+      style: buildAceNodeStyle(node.type === 'input', c),
     })));
 
     setEdges(prevEdges => prevEdges.map(edge => ({
       ...edge,
-      style: {
-        ...edge.style,
-        stroke: theme === 'light' ? '#cbd5e1' : '#475569',
-      },
-      labelStyle: {
-        ...edge.labelStyle,
-        fill: theme === 'light' ? '#475569' : '#94a3b8',
-        background: theme === 'light' ? '#f1f5f9' : '#0a0e14',
-      }
+      ...buildAceEdgeVisual(c),
     })));
-  }, [theme, setNodes, setEdges]);
+  }, [theme, c, setNodes, setEdges]);
 
   const addLog = useCallback((message) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -144,22 +159,10 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
       return {
         ...node,
         position: { x, y },
-        style: {
-          background: theme === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(20, 25, 35, 0.95)',
-          color: theme === 'light' ? '#0f172a' : '#ffffff',
-          border: `2px solid ${node.type === 'input' ? '#a855f7' : '#06b6d4'}`,
-          borderRadius: '8px',
-          padding: '10px 14px',
-          fontSize: '12px',
-          fontWeight: '600',
-          boxShadow: theme === 'light' ? '0 4px 12px rgba(0,0,0,0.08)' : '0 8px 16px -2px rgba(0,0,0,0.5)',
-          backdropFilter: 'blur(8px)',
-          minWidth: '150px',
-          textAlign: 'center'
-        }
+        style: buildAceNodeStyle(node.type === 'input', c),
       };
     });
-  }, [theme]);
+  }, [c]);
 
   const fetchGraphData = useCallback(async (dbId) => {
     try {
@@ -175,15 +178,14 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
       const mappedEdges = data.edges.map(e => ({
         ...e,
         animated: e.type !== 'CONTAINS',
-        style: { stroke: theme === 'light' ? '#cbd5e1' : '#475569', strokeWidth: 2 },
-        labelStyle: { fill: theme === 'light' ? '#475569' : '#94a3b8', fontSize: 10, fontWeight: 500, background: theme === 'light' ? '#f1f5f9' : '#0a0e14', padding: '2px 4px' }
+        ...buildAceEdgeVisual(c),
       }));
       setEdges(mappedEdges);
     } catch (err) {
       console.error(err);
       addLog(`[ERROR] Failed to load Neo4j Graph elements: ${err.message}`);
     }
-  }, [positionNodes, addLog, setNodes, setEdges, theme]);
+  }, [positionNodes, addLog, setNodes, setEdges, c]);
 
   // Handle file uploads for unstructured/CSV parsing
   const handleFileUpload = (e) => {
@@ -310,7 +312,7 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
             className="nav-tab-item active flex-center"
           >
             <Server size={14} className="tab-icon" />
-            <span>Admin • ACE Onboarding</span>
+            <span>ACE Onboarding</span>
           </button>
           
           <button 
@@ -319,7 +321,7 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
             onClick={() => setAdminActiveTab('registry')}
           >
             <Database size={14} className="tab-icon" />
-            <span>Admin • Metadata Registry</span>
+            <span>Metadata Registry</span>
           </button>
 
           <button 
@@ -328,7 +330,7 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
             onClick={() => setAdminActiveTab('query')}
           >
             <BookOpen size={14} className="tab-icon" />
-            <span>User • Query Execution</span>
+            <span>Query Execution</span>
           </button>
         </nav>
 
@@ -337,26 +339,11 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
             <div className="profile-avatar flex-center">C</div>
             <span className="profile-name">Chirag Admin</span>
           </div>
-          <button 
-            type="button" 
-            className="logout-button flex-center theme-toggle-btn-admin" 
+          <button
+            type="button"
+            className="theme-toggle-btn-admin flex-center"
             onClick={toggleTheme}
             title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
-            style={{
-              background: 'transparent',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              padding: '6px',
-              borderRadius: '6px',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.15s ease',
-              width: '32px',
-              height: '32px',
-              marginRight: '8px'
-            }}
           >
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </button>
@@ -606,17 +593,6 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
                   className="graph-expand-btn flex-center"
                   onClick={() => setIsGraphFullscreen(true)}
                   title="Expand Graph to Fullscreen"
-                  style={{ 
-                    marginLeft: 'auto', 
-                    background: theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)', 
-                    border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)', 
-                    color: theme === 'light' ? '#475569' : '#94a3b8', 
-                    cursor: 'pointer',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    gap: '4px'
-                  }}
                 >
                   <Maximize2 size={12} />
                   <span>Fullscreen</span>
@@ -652,20 +628,21 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
                     fitView
                   >
                     <Controls style={{
-                      background: theme === 'light' ? '#ffffff' : 'rgba(14,18,26,0.9)',
-                      border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '8px',
-                      color: theme === 'light' ? '#0f172a' : '#ffffff',
+                      background: c.surface1,
+                      border: `1px solid ${c.border}`,
+                      borderRadius: radius.md,
+                      color: c.text,
                     }} />
-                    <MiniMap 
-                      nodeColor={(node) => node.type === 'input' ? '#a855f7' : '#06b6d4'} 
+                    <MiniMap
+                      nodeColor={(node) => node.type === 'input' ? c.graphDb : c.graphEntity}
                       style={{
-                        background: theme === 'light' ? '#ffffff' : 'rgba(10,14,20,0.95)',
-                        border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.06)',
-                        borderRadius: '8px',
+                        background: c.surface1,
+                        border: `1px solid ${c.border}`,
+                        borderRadius: radius.md,
                       }}
+                      maskColor={c.scrim}
                     />
-                    <Background gap={12} size={1} color={theme === 'light' ? 'rgba(0,0,0,0.06)' : "rgba(255, 255, 255, 0.05)"} />
+                    <Background gap={22} size={1.4} color={c.border} />
                   </ReactFlow>
                 </div>
               )}
@@ -679,7 +656,6 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
         <div
           className="terminal-header flex-center"
           onClick={() => setIsTerminalMinimized(prev => !prev)}
-          style={{ cursor: 'pointer', userSelect: 'none' }}
           title={isTerminalMinimized ? 'Expand terminal' : 'Minimize terminal'}
         >
           <div className="terminal-actions flex-center">
@@ -691,7 +667,7 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
             <Terminal size={12} className="title-icon" />
             <span>ace-agent-executor:~ - Bash Shell (ReAct loop logs)</span>
           </span>
-          <div className="terminal-header-right flex-center" style={{ marginLeft: 'auto', gap: '10px' }}>
+          <div className="terminal-header-right flex-center">
             <div className="terminal-status-light flex-center">
               <span className={`status-dot ${pipelineStatus}`}></span>
               <span className="status-label">{pipelineStatus.toUpperCase()}</span>
@@ -701,19 +677,6 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
               className="terminal-toggle-btn flex-center"
               onClick={(e) => { e.stopPropagation(); setIsTerminalMinimized(prev => !prev); }}
               title={isTerminalMinimized ? 'Maximize terminal' : 'Minimize terminal'}
-              style={{
-                background: theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.04)',
-                border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '4px',
-                color: theme === 'light' ? '#475569' : '#94a3b8',
-                cursor: 'pointer',
-                padding: '3px 7px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                fontSize: '11px',
-                transition: 'background 0.15s'
-              }}
             >
               {isTerminalMinimized
                 ? <><Maximize2 size={11} /><span>Expand</span></>
@@ -755,8 +718,8 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
       {isGraphFullscreen && (
         <div className="graph-fullscreen-overlay animate-fade-in">
           <div className="fullscreen-overlay-header flex-center">
-            <div className="flex-center" style={{ gap: '10px' }}>
-              <Network size={20} style={{ color: '#06b6d4' }} />
+            <div className="flex-center" style={{ gap: 'var(--s-3)' }}>
+              <Network size={20} style={{ color: c.accent }} />
               <h2 className="overlay-title">Interactive Knowledge Graph Workspace</h2>
             </div>
             <button
@@ -770,7 +733,7 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
             </button>
           </div>
 
-          <div className="fullscreen-overlay-body" style={{ background: theme === 'light' ? '#f1f5f9' : '#0a0e14', position: 'relative' }}>
+          <div className="fullscreen-overlay-body">
             <div className="interactive-graph-container" style={{ width: '100%', height: '100%' }}>
               <ReactFlow
                 nodes={nodes}
@@ -780,20 +743,21 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
                 fitView
               >
                 <Controls style={{
-                  background: theme === 'light' ? '#ffffff' : 'rgba(14,18,26,0.9)',
-                  border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '8px',
-                  color: theme === 'light' ? '#0f172a' : '#ffffff',
+                  background: c.surface1,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: radius.md,
+                  color: c.text,
                 }} />
-                <MiniMap 
-                  nodeColor={(node) => node.type === 'input' ? '#a855f7' : '#06b6d4'} 
+                <MiniMap
+                  nodeColor={(node) => node.type === 'input' ? c.graphDb : c.graphEntity}
                   style={{
-                    background: theme === 'light' ? '#ffffff' : 'rgba(10,14,20,0.95)',
-                    border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.06)',
-                    borderRadius: '8px',
+                    background: c.surface1,
+                    border: `1px solid ${c.border}`,
+                    borderRadius: radius.md,
                   }}
+                  maskColor={c.scrim}
                 />
-                <Background gap={12} size={1} color={theme === 'light' ? 'rgba(0,0,0,0.06)' : "rgba(255, 255, 255, 0.05)"} />
+                <Background gap={22} size={1.4} color={c.border} />
               </ReactFlow>
             </div>
           </div>

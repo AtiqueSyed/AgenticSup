@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -30,73 +30,69 @@ import {
   Moon,
   Search,
 } from 'lucide-react';
+import { palette, radius, space, fontSize } from '../theme';
 
 /* ─────────────────────────────────────────────────────────
-   Custom ReactFlow node styles generator (light/dark themed)
+   Custom ReactFlow node styles — one factory driven by the
+   four --graph-* tokens instead of four hand-tuned gradients.
    ───────────────────────────────────────────────────────── */
-const getRfNodeStyles = (theme) => ({
-  Database: {
-    background: theme === 'light'
-      ? 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(109,40,217,0.05))'
-      : 'linear-gradient(135deg, rgba(168,85,247,0.25), rgba(109,40,217,0.15))',
-    border: theme === 'light' ? '1px solid rgba(168,85,247,0.6)' : '1px solid rgba(168,85,247,0.5)',
-    borderRadius: '10px',
-    color: theme === 'light' ? '#6d28d9' : '#e9d5ff',
-    fontSize: '11px',
-    fontWeight: '700',
-    padding: '8px 14px',
-    backdropFilter: 'blur(8px)',
+const NODE_KIND_TOKEN = {
+  Database: 'graphDb',
+  Table: 'graphTable',
+  Column: 'graphColumn',
+  Entity: 'graphEntity',
+};
+
+function buildNodeStyle(kind, c) {
+  const hue = c[NODE_KIND_TOKEN[kind]];
+  const isDb = kind === 'Database';
+  return {
+    background: `color-mix(in srgb, ${hue} 12%, ${c.surface1})`,
+    border: `1px solid ${hue}`,
+    borderRadius: radius.md,
+    color: c.text,
+    fontSize: isDb ? fontSize[2] : fontSize[1],
+    fontWeight: isDb ? '600' : '500',
+    padding: isDb ? `${space[2]} ${space[4]}` : `${space[2]} ${space[3]}`,
     textAlign: 'center',
-    minWidth: '90px',
-  },
-  Entity: {
-    background: theme === 'light'
-      ? 'linear-gradient(135deg, rgba(6,182,212,0.08), rgba(8,145,178,0.04))'
-      : 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(8,145,178,0.08))',
-    border: theme === 'light' ? '1px solid rgba(6,182,212,0.4)' : '1px solid rgba(6,182,212,0.3)',
-    borderRadius: '8px',
-    color: theme === 'light' ? '#0891b2' : '#a5f3fc',
-    fontSize: '10px',
-    fontWeight: '500',
-    padding: '6px 10px',
-    backdropFilter: 'blur(8px)',
-    textAlign: 'center',
-    minWidth: '72px',
-  },
-  Table: {
-    background: theme === 'light'
-      ? 'linear-gradient(135deg, rgba(234,179,8,0.08), rgba(202,138,4,0.04))'
-      : 'linear-gradient(135deg, rgba(234,179,8,0.12), rgba(202,138,4,0.08))',
-    border: theme === 'light' ? '1px solid rgba(234,179,8,0.4)' : '1px solid rgba(234,179,8,0.3)',
-    borderRadius: '8px',
-    color: theme === 'light' ? '#a16207' : '#fef08a',
-    fontSize: '10px',
-    fontWeight: '500',
-    padding: '6px 10px',
-    backdropFilter: 'blur(8px)',
-    textAlign: 'center',
-    minWidth: '72px',
-  },
-  Column: {
-    background: theme === 'light'
-      ? 'linear-gradient(135deg, rgba(244,63,94,0.08), rgba(225,29,72,0.04))'
-      : 'linear-gradient(135deg, rgba(244,63,94,0.12), rgba(225,29,72,0.08))',
-    border: theme === 'light' ? '1px solid rgba(244,63,94,0.4)' : '1px solid rgba(244,63,94,0.3)',
-    borderRadius: '8px',
-    color: theme === 'light' ? '#be123c' : '#fecdd3',
-    fontSize: '10px',
-    fontWeight: '500',
-    padding: '6px 10px',
-    backdropFilter: 'blur(8px)',
-    textAlign: 'center',
-    minWidth: '72px',
-  },
-});
+    minWidth: isDb ? '90px' : '72px',
+    boxShadow: c.e1,
+  };
+}
+
+const getRfNodeStyles = (theme) => {
+  const c = palette(theme);
+  return {
+    Database: buildNodeStyle('Database', c),
+    Entity: buildNodeStyle('Entity', c),
+    Table: buildNodeStyle('Table', c),
+    Column: buildNodeStyle('Column', c),
+  };
+};
+
+/* Edge visual (stroke/label/marker) — single source used by every place
+   that (re)styles edges: initial load, theme change, and manual creation. */
+function buildEdgeVisual(edge, c) {
+  const stroke = edge.animated ? c.graphEdgeActive : c.graphEdge;
+  return {
+    style: { stroke, strokeWidth: 1.5 },
+    labelStyle: { fill: c.textSecondary, fontSize: 9 },
+    labelBgStyle: { fill: c.surface1, fillOpacity: 0.9 },
+    markerEnd: { type: 'arrowclosed', color: stroke },
+  };
+}
+
+const NODE_BADGE_CLASS = {
+  Database: 'kg-badge--database',
+  Table: 'kg-badge--table',
+  Column: 'kg-badge--column',
+};
 
 /* ─────────────────────────────────────────────────────────
    Knowledge Graph Panel
    ───────────────────────────────────────────────────────── */
 function KnowledgeGraphPanel({ refreshKey, theme }) {
+  const c = useMemo(() => palette(theme), [theme]);
   const [rawGraphData, setRawGraphData] = useState({ nodes: [], edges: [] });
   const [graphLoading, setGraphLoading] = useState(true);
   const [showDatabases, setShowDatabases] = useState(true);
@@ -170,7 +166,7 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
     const y = node.position.y + 20;
     setCenter(x, y, { zoom: 1.5, duration: 800 });
 
-    // Highlight node temporarily
+    // Highlight node temporarily — a single calm accent ring, no glow/scale.
     setNodes((nds) => nds.map((n) => {
       if (n.id === node.id) {
         return {
@@ -178,11 +174,8 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
           selected: true,
           style: {
             ...n.style,
-            boxShadow: theme === 'light' 
-              ? '0 0 0 4px rgba(168,85,247,0.4), 0 0 16px rgba(168,85,247,0.3)' 
-              : '0 0 0 4px rgba(168,85,247,0.6), 0 0 24px rgba(168,85,247,0.5)',
-            transform: 'scale(1.05)',
-            transition: 'all 0.2s ease-in-out'
+            boxShadow: `0 0 0 3px ${c.accentRing}`,
+            transition: 'box-shadow 0.2s ease-in-out'
           }
         };
       }
@@ -208,7 +201,7 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
             selected: false,
             style: {
               ...style,
-              transition: 'all 0.3s ease-out'
+              transition: 'box-shadow 0.3s ease-out'
             }
           };
         }
@@ -318,23 +311,14 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
       });
       if (!res.ok) throw new Error("Failed to save relationship on server");
 
-      const newEdge = {
+      const newEdgeBase = {
         id: `${source}-${target}-${type}`,
         source,
         target,
         label: type,
         animated: type !== 'CONTAINS',
-        style: {
-          stroke: theme === 'light' ? 'rgba(168,85,247,0.5)' : 'rgba(168,85,247,0.3)',
-          strokeWidth: 1.5
-        },
-        labelStyle: { fill: theme === 'light' ? '#475569' : '#94a3b8', fontSize: 9 },
-        labelBgStyle: {
-          fill: theme === 'light' ? '#f1f5f9' : 'rgba(10,14,20,0.85)',
-          fillOpacity: 0.9,
-        },
-        markerEnd: { type: 'arrowclosed', color: type === 'CONTAINS' ? '#a855f7' : '#06b6d4' }
       };
+      const newEdge = { ...newEdgeBase, ...buildEdgeVisual(newEdgeBase, c) };
 
       setEdges((eds) => addEdge(newEdge, eds));
       setEdgeCreateModal(null);
@@ -417,22 +401,9 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
 
     setEdges(prevEdges => prevEdges.map(edge => ({
       ...edge,
-      style: {
-        ...edge.style,
-        stroke: edge.animated 
-          ? (theme === 'light' ? 'rgba(6,182,212,0.8)' : 'rgba(6,182,212,0.5)')
-          : (theme === 'light' ? 'rgba(168,85,247,0.5)' : 'rgba(168,85,247,0.3)'),
-      },
-      labelStyle: {
-        ...edge.labelStyle,
-        fill: theme === 'light' ? '#475569' : '#94a3b8',
-      },
-      labelBgStyle: {
-        ...edge.labelBgStyle,
-        fill: theme === 'light' ? '#f1f5f9' : 'rgba(10,14,20,0.85)',
-      }
+      ...buildEdgeVisual(edge, c),
     })));
-  }, [theme, setNodes, setEdges]);
+  }, [theme, c, setNodes, setEdges]);
 
   useEffect(() => {
     let filteredNodes = rawGraphData.nodes;
@@ -538,21 +509,10 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
     setEdges(
       filteredEdges.map((e) => ({
         ...e,
-        style: {
-          stroke: e.animated 
-            ? (theme === 'light' ? 'rgba(6,182,212,0.8)' : 'rgba(6,182,212,0.5)')
-            : (theme === 'light' ? 'rgba(168,85,247,0.5)' : 'rgba(168,85,247,0.3)'),
-          strokeWidth: 1.5,
-        },
-        labelStyle: { fill: theme === 'light' ? '#475569' : '#94a3b8', fontSize: 9 },
-        labelBgStyle: {
-          fill: theme === 'light' ? '#f1f5f9' : 'rgba(10,14,20,0.85)',
-          fillOpacity: 0.9,
-        },
-        markerEnd: { type: 'arrowclosed', color: e.animated ? '#06b6d4' : '#a855f7' },
+        ...buildEdgeVisual(e, c),
       }))
     );
-  }, [rawGraphData, showDatabases, showTables, showColumns, setNodes, setEdges, theme]);
+  }, [rawGraphData, showDatabases, showTables, showColumns, setNodes, setEdges, theme, c]);
 
   const onConnect = useCallback(
     (params) => {
@@ -571,46 +531,24 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 0 }}>
       {/* Graph Panel Header */}
-      <div style={{
-        padding: '14px 18px',
-        borderBottom: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.05)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        background: theme === 'light' ? '#f8fafc' : 'rgba(0,0,0,0.2)',
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span className="panel-step-badge">KG</span>
-          <div>
-            <h2 className="panel-title" style={{ margin: 0, fontSize: '14px' }}>Knowledge Graph</h2>
-            <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
-              {nodeCount} nodes · {edgeCount} edges — sourced from Neo4j
-            </p>
-          </div>
-        </div>
+      <div className="panel-titlebar">
+        <span className="panel-titlebar-dots" aria-hidden="true"><i /><i /><i /></span>
+        <span className="panel-titlebar-crumb">Registry / Knowledge Graph</span>
+        <span className="panel-titlebar-status">{editMode ? 'Editing' : 'Ready'}</span>
+      </div>
+      <div className="kg-panel-header">
 
         {/* Search Box */}
-        <div ref={dropdownRef} style={{ position: 'relative', flex: 1, maxWidth: '200px', margin: '0 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-            <Search size={12} style={{ position: 'absolute', left: '10px', color: '#64748b', pointerEvents: 'none' }} />
+        <div ref={dropdownRef} className="kg-search">
+          <div className="kg-search-input-wrap">
+            <Search size={12} className="kg-search-icon" />
             <input
               type="text"
+              className="kg-search-input"
               value={searchQuery}
               onChange={handleSearchChange}
               onFocus={() => { if (searchResults.length > 0) setShowDropdown(true); }}
               placeholder="Search graph nodes..."
-              style={{
-                width: '100%',
-                background: theme === 'light' ? '#ffffff' : 'rgba(255, 255, 255, 0.04)',
-                border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
-                borderRadius: '6px',
-                padding: '6px 10px 6px 28px',
-                fontSize: '11px',
-                color: theme === 'light' ? '#0f172a' : '#ffffff',
-                outline: 'none',
-                transition: 'border-color 0.2s',
-              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && searchResults.length > 0) {
                   handleSelectNode(searchResults[0]);
@@ -621,60 +559,23 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
 
           {/* Dropdown Suggestions */}
           {showDropdown && searchResults.length > 0 && (
-            <div style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              right: 0,
-              background: theme === 'light' ? '#ffffff' : '#1e293b',
-              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: '6px',
-              marginTop: '4px',
-              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
-              zIndex: 1000,
-              maxHeight: '200px',
-              overflowY: 'auto',
-            }}>
+            <div className="kg-search-dropdown">
               {searchResults.map((node) => {
                 const labelText = node.data?.label || '';
                 const type = labelText.match(/^\[(.*?)\]/)?.[1] || 'Node';
                 const name = labelText.replace(/^\[.*?\]\n/, '');
-                
-                let badgeBg = 'rgba(6,182,212,0.1)';
-                let badgeColor = '#06b6d4';
-                if (type === 'Database') { badgeBg = 'rgba(168,85,247,0.1)'; badgeColor = '#a855f7'; }
-                else if (type === 'Table') { badgeBg = 'rgba(234,179,8,0.1)'; badgeColor = '#eab308'; }
-                else if (type === 'Column') { badgeBg = 'rgba(244,63,94,0.1)'; badgeColor = '#f43f5e'; }
+                const badgeClass = NODE_BADGE_CLASS[type] || 'kg-badge--entity';
 
                 return (
                   <div
                     key={node.id}
+                    className="kg-search-result"
                     onClick={() => handleSelectNode(node)}
-                    style={{
-                      padding: '8px 12px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      fontSize: '11px',
-                      borderBottom: theme === 'light' ? '1px solid #f1f5f9' : '1px solid rgba(255,255,255,0.03)',
-                      transition: 'background 0.15s',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = theme === 'light' ? '#f1f5f9' : 'rgba(255,255,255,0.05)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                   >
-                    <span style={{ fontWeight: '500', color: theme === 'light' ? '#0f172a' : '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '110px' }}>
+                    <span className="kg-search-result-name">
                       {name || node.id}
                     </span>
-                    <span style={{
-                      fontSize: '9px',
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      background: badgeBg,
-                      color: badgeColor,
-                      fontWeight: '600',
-                      flexShrink: 0
-                    }}>
+                    <span className={`kg-badge ${badgeClass}`}>
                       {type}
                     </span>
                   </div>
@@ -684,46 +585,24 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="kg-toolbar">
           {/* Toggle DB Nodes */}
           <button
             type="button"
+            className={`kg-toggle-btn kg-toggle-btn--db ${showDatabases ? 'active' : ''}`}
             onClick={() => setShowDatabases(!showDatabases)}
             title={showDatabases ? 'Hide DB nodes' : 'Show DB nodes'}
-            style={{
-              background: showDatabases ? 'rgba(168,85,247,0.15)' : (theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)'),
-              border: `1px solid ${showDatabases ? 'rgba(168,85,247,0.4)' : (theme === 'light' ? '#cbd5e1' : 'rgba(255,255,255,0.08)')}`,
-              color: showDatabases ? '#a855f7' : (theme === 'light' ? '#475569' : '#64748b'),
-              padding: '5px 10px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-            }}
           >
             {showDatabases ? <Eye size={12} /> : <EyeOff size={12} />}
             <span>DB Lineage</span>
           </button>
-          
+
           {/* Toggle Table Nodes */}
           <button
             type="button"
+            className={`kg-toggle-btn kg-toggle-btn--table ${showTables ? 'active' : ''}`}
             onClick={() => setShowTables(!showTables)}
             title={showTables ? 'Hide Table nodes' : 'Show Table nodes'}
-            style={{
-              background: showTables ? 'rgba(234,179,8,0.15)' : (theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)'),
-              border: `1px solid ${showTables ? 'rgba(234,179,8,0.4)' : (theme === 'light' ? '#cbd5e1' : 'rgba(255,255,255,0.08)')}`,
-              color: showTables ? '#eab308' : (theme === 'light' ? '#475569' : '#64748b'),
-              padding: '5px 10px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-            }}
           >
             {showTables ? <Eye size={12} /> : <EyeOff size={12} />}
             <span>Tables</span>
@@ -732,20 +611,9 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
           {/* Toggle Column Nodes */}
           <button
             type="button"
+            className={`kg-toggle-btn kg-toggle-btn--column ${showColumns ? 'active' : ''}`}
             onClick={() => setShowColumns(!showColumns)}
             title={showColumns ? 'Hide Column nodes' : 'Show Column nodes'}
-            style={{
-              background: showColumns ? 'rgba(244,63,94,0.15)' : (theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)'),
-              border: `1px solid ${showColumns ? 'rgba(244,63,94,0.4)' : (theme === 'light' ? '#cbd5e1' : 'rgba(255,255,255,0.08)')}`,
-              color: showColumns ? '#f43f5e' : (theme === 'light' ? '#475569' : '#64748b'),
-              padding: '5px 10px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-            }}
           >
             {showColumns ? <Eye size={12} /> : <EyeOff size={12} />}
             <span>Columns</span>
@@ -754,20 +622,9 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
           {/* Refresh Graph */}
           <button
             type="button"
+            className="kg-toggle-btn"
             onClick={fetchGraph}
             disabled={graphLoading}
-            style={{
-              background: theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)',
-              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)',
-              color: theme === 'light' ? '#475569' : '#94a3b8',
-              padding: '5px 10px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-            }}
           >
             <RefreshCw size={11} className={graphLoading ? 'animate-spin' : ''} />
             <span>Refresh</span>
@@ -776,25 +633,13 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
           {/* Edit Mode Toggle */}
           <button
             type="button"
+            className={`kg-toggle-btn kg-toggle-btn--edit ${editMode ? 'active' : ''}`}
             onClick={() => {
               setEditMode(!editMode);
               if (editMode) {
                 setNodes((nds) => nds.map((n) => ({ ...n, selected: false })));
                 setEdges((eds) => eds.map((e) => ({ ...e, selected: false })));
               }
-            }}
-            style={{
-              background: editMode ? 'rgba(168,85,247,0.15)' : (theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)'),
-              border: `1px solid ${editMode ? 'rgba(168,85,247,0.5)' : (theme === 'light' ? '#cbd5e1' : 'rgba(255,255,255,0.08)')}`,
-              color: editMode ? '#a855f7' : (theme === 'light' ? '#475569' : '#94a3b8'),
-              padding: '5px 10px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              fontWeight: editMode ? '600' : 'normal'
             }}
           >
             <span>{editMode ? 'Edit Mode ON' : 'Edit Mode OFF'}</span>
@@ -803,30 +648,17 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
       </div>
 
       {/* ReactFlow Canvas */}
-      <div 
-        ref={reactFlowWrapper} 
-        style={{ flex: 1, position: 'relative', background: theme === 'light' ? '#f8fafc' : 'rgba(6,9,13,0.8)' }}
-      >
+      <div ref={reactFlowWrapper} className="kg-canvas-wrap">
         {graphLoading ? (
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            gap: '12px', color: '#64748b',
-          }}>
-            <Loader2 size={28} className="animate-spin" style={{ color: '#a855f7' }} />
-            <span style={{ fontSize: '12px' }}>Loading knowledge graph from Neo4j...</span>
+          <div className="kg-canvas-loading">
+            <Loader2 size={28} className="animate-spin graph-loader-icon" />
+            <span>Loading knowledge graph from Neo4j...</span>
           </div>
         ) : nodes.length === 0 ? (
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            gap: '12px', color: '#64748b',
-          }}>
-            <GitBranch size={40} style={{ color: '#334155', opacity: 0.6 }} />
-            <h3 style={{ margin: 0, color: '#94a3b8', fontSize: '14px' }}>No Graph Data</h3>
-            <p style={{ margin: 0, fontSize: '12px', textAlign: 'center', maxWidth: '220px' }}>
+          <div className="kg-canvas-empty">
+            <GitBranch size={40} className="idle-network-icon" />
+            <h3 className="kg-canvas-empty-title">No Graph Data</h3>
+            <p className="kg-canvas-empty-desc">
               Onboard a database first to populate the knowledge graph.
             </p>
           </div>
@@ -846,149 +678,75 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
           >
             <Controls
               style={{
-                background: theme === 'light' ? '#ffffff' : 'rgba(14,18,26,0.9)',
-                border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '8px',
-                color: theme === 'light' ? '#0f172a' : '#ffffff',
+                background: c.surface1,
+                border: `1px solid ${c.border}`,
+                borderRadius: radius.md,
+                color: c.text,
               }}
             />
             <MiniMap
               style={{
-                background: theme === 'light' ? '#ffffff' : 'rgba(10,14,20,0.95)',
-                border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '8px',
+                background: c.surface1,
+                border: `1px solid ${c.border}`,
+                borderRadius: radius.md,
               }}
               nodeColor={(n) => {
                 const labelText = n.data?.label || '';
-                if (labelText.startsWith('[Database]') || n.type === 'input') return '#a855f7';
-                if (labelText.startsWith('[Table]')) return '#eab308';
-                if (labelText.startsWith('[Column]')) return '#f43f5e';
-                return '#06b6d4';
+                if (labelText.startsWith('[Database]') || n.type === 'input') return c.graphDb;
+                if (labelText.startsWith('[Table]')) return c.graphTable;
+                if (labelText.startsWith('[Column]')) return c.graphColumn;
+                return c.graphEntity;
               }}
-              maskColor="rgba(0,0,0,0.6)"
+              maskColor={c.scrim}
             />
-            <Background
-              color={theme === 'light' ? 'rgba(0,0,0,0.06)' : "rgba(255,255,255,0.03)"}
-              gap={20}
-              size={1}
-            />
+            <Background color={c.border} gap={22} size={1.4} />
           </ReactFlow>
         )}
 
         {/* Drag-and-Drop Side Palette */}
         {editMode && (
-          <div style={{
-            position: 'absolute',
-            top: '16px',
-            left: '16px',
-            zIndex: 100,
-            background: theme === 'light' ? '#ffffff' : 'rgba(10,14,20,0.95)',
-            border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '8px',
-            padding: '12px',
-            width: '140px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-            color: theme === 'light' ? '#0f172a' : '#f8fafc',
-            textAlign: 'left'
-          }}>
-            <h4 style={{ margin: '0 0 4px 0', fontSize: '11px', textTransform: 'uppercase', color: '#64748b', fontWeight: '700', letterSpacing: '0.04em' }}>Palette</h4>
-            
-            <div 
+          <div className="kg-palette">
+            <h4 className="kg-palette-title">Palette</h4>
+
+            <div
               draggable
               onDragStart={(e) => onDragStart(e, 'Database')}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                background: theme === 'light' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.15)',
-                border: '1px dashed #a855f7',
-                color: '#a855f7',
-                fontSize: '10px',
-                fontWeight: '600',
-                cursor: 'grab',
-                textAlign: 'center'
-              }}
+              className="kg-palette-item kg-palette-item--database"
             >
               + Database
             </div>
-            
-            <div 
+
+            <div
               draggable
               onDragStart={(e) => onDragStart(e, 'Table')}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                background: theme === 'light' ? 'rgba(234,179,8,0.08)' : 'rgba(234,179,8,0.15)',
-                border: '1px dashed #eab308',
-                color: '#eab308',
-                fontSize: '10px',
-                fontWeight: '600',
-                cursor: 'grab',
-                textAlign: 'center'
-              }}
+              className="kg-palette-item kg-palette-item--table"
             >
               + Table
             </div>
 
-            <div 
+            <div
               draggable
               onDragStart={(e) => onDragStart(e, 'Column')}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                background: theme === 'light' ? 'rgba(244,63,94,0.08)' : 'rgba(244,63,94,0.15)',
-                border: '1px dashed #f43f5e',
-                color: '#f43f5e',
-                fontSize: '10px',
-                fontWeight: '600',
-                cursor: 'grab',
-                textAlign: 'center'
-              }}
+              className="kg-palette-item kg-palette-item--column"
             >
               + Column
             </div>
 
-            <div 
+            <div
               draggable
               onDragStart={(e) => onDragStart(e, 'Entity')}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                background: theme === 'light' ? 'rgba(6,182,212,0.08)' : 'rgba(6,182,212,0.15)',
-                border: '1px dashed #06b6d4',
-                color: '#06b6d4',
-                fontSize: '10px',
-                fontWeight: '600',
-                cursor: 'grab',
-                textAlign: 'center'
-              }}
+              className="kg-palette-item kg-palette-item--entity"
             >
               + Entity
             </div>
 
-            <hr style={{ margin: '4px 0', border: 0, borderTop: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)' }} />
+            <hr className="kg-palette-divider" />
 
             <button
               type="button"
               disabled={!(nodes.some(n => n.selected) || edges.some(e => e.selected))}
               onClick={handleDeleteSelected}
-              style={{
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: '6px',
-                background: (nodes.some(n => n.selected) || edges.some(e => e.selected)) ? 'rgba(239,68,68,0.1)' : 'transparent',
-                border: `1px solid ${(nodes.some(n => n.selected) || edges.some(e => e.selected)) ? '#ef4444' : (theme === 'light' ? '#cbd5e1' : 'rgba(255,255,255,0.08)')}`,
-                color: (nodes.some(n => n.selected) || edges.some(e => e.selected)) ? '#ef4444' : '#64748b',
-                fontSize: '10px',
-                fontWeight: '600',
-                cursor: (nodes.some(n => n.selected) || edges.some(e => e.selected)) ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px'
-              }}
+              className="kg-palette-delete-btn"
             >
               <Trash2 size={10} />
               <span>Delete Selected</span>
@@ -998,103 +756,49 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
 
         {/* Node Create Modal */}
         {nodeCreateModal && (
-          <div style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}>
-            <div style={{
-              background: theme === 'light' ? '#ffffff' : '#111827',
-              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '10px',
-              padding: '20px',
-              width: '320px',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
-              color: theme === 'light' ? '#0f172a' : '#ffffff',
-              textAlign: 'left'
-            }}>
-              <h4 style={{ margin: '0 0 14px 0', fontSize: '13px', fontWeight: '600' }}>
+          <div className="admin-modal-overlay">
+            <div className="admin-modal">
+              <h4 className="admin-modal-title">
                 Create Custom {nodeCreateModal.type}
               </h4>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+              <div className="admin-modal-fields">
                 <div>
-                  <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Name</label>
+                  <label className="admin-modal-field-label">Name</label>
                   <input
                     type="text"
+                    className="admin-modal-input"
                     value={newNodeName}
                     onChange={(e) => setNewNodeName(e.target.value)}
                     placeholder="Enter name..."
-                    style={{
-                      width: '100%',
-                      background: theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)',
-                      border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '6px',
-                      padding: '6px 10px',
-                      fontSize: '11px',
-                      color: theme === 'light' ? '#0f172a' : '#ffffff',
-                      outline: 'none'
-                    }}
                   />
                 </div>
-                
+
                 <div>
-                  <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Description</label>
+                  <label className="admin-modal-field-label">Description</label>
                   <textarea
+                    className="admin-modal-textarea"
                     value={newNodeDesc}
                     onChange={(e) => setNewNodeDesc(e.target.value)}
                     placeholder="Enter description..."
                     rows={3}
-                    style={{
-                      width: '100%',
-                      background: theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)',
-                      border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '6px',
-                      padding: '6px 10px',
-                      fontSize: '11px',
-                      color: theme === 'light' ? '#0f172a' : '#ffffff',
-                      outline: 'none',
-                      resize: 'none'
-                    }}
                   />
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+              <div className="admin-modal-actions">
                 <button
                   type="button"
+                  className="admin-modal-btn admin-modal-btn--secondary"
                   onClick={() => { setNodeCreateModal(null); setNewNodeName(''); setNewNodeDesc(''); }}
-                  style={{
-                    background: theme === 'light' ? '#f3f4f6' : 'rgba(255,255,255,0.03)',
-                    border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)',
-                    color: theme === 'light' ? '#475569' : '#94a3b8',
-                    padding: '5px 12px',
-                    borderRadius: '5px',
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
+                  className="admin-modal-btn admin-modal-btn--primary"
                   onClick={handleCreateNodeSubmit}
                   disabled={!newNodeName.trim()}
-                  style={{
-                    background: '#a855f7',
-                    border: 'none',
-                    color: '#ffffff',
-                    padding: '5px 12px',
-                    borderRadius: '5px',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    fontWeight: '600'
-                  }}
                 >
                   Create
                 </button>
@@ -1105,46 +809,19 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
 
         {/* Edge Create Modal */}
         {edgeCreateModal && (
-          <div style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(3px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}>
-            <div style={{
-              background: theme === 'light' ? '#ffffff' : '#111827',
-              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '10px',
-              padding: '20px',
-              width: '300px',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
-              color: theme === 'light' ? '#0f172a' : '#ffffff',
-              textAlign: 'left'
-            }}>
-              <h4 style={{ margin: '0 0 14px 0', fontSize: '13px', fontWeight: '600' }}>
+          <div className="admin-modal-overlay">
+            <div className="admin-modal">
+              <h4 className="admin-modal-title">
                 Add Relationship
               </h4>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+              <div className="admin-modal-fields">
                 <div>
-                  <label style={{ fontSize: '10px', color: '#64748b', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Relationship Type</label>
+                  <label className="admin-modal-field-label">Relationship Type</label>
                   <select
+                    className="admin-modal-select"
                     value={newEdgeType}
                     onChange={(e) => setNewEdgeType(e.target.value)}
-                    style={{
-                      width: '100%',
-                      background: theme === 'light' ? '#ffffff' : '#1e293b',
-                      border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255, 255, 255, 0.08)',
-                      borderRadius: '6px',
-                      padding: '6px 10px',
-                      fontSize: '11px',
-                      color: theme === 'light' ? '#0f172a' : '#ffffff',
-                      outline: 'none'
-                    }}
                   >
                     <option value="RELATES_TO">RELATES_TO</option>
                     <option value="CONTAINS">CONTAINS</option>
@@ -1155,35 +832,18 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' }}>
+              <div className="admin-modal-actions">
                 <button
                   type="button"
+                  className="admin-modal-btn admin-modal-btn--secondary"
                   onClick={() => { setEdgeCreateModal(null); setNewEdgeType('RELATES_TO'); }}
-                  style={{
-                    background: theme === 'light' ? '#f3f4f6' : 'rgba(255,255,255,0.03)',
-                    border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)',
-                    color: theme === 'light' ? '#475569' : '#94a3b8',
-                    padding: '5px 12px',
-                    borderRadius: '5px',
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
+                  className="admin-modal-btn admin-modal-btn--primary"
                   onClick={handleCreateEdgeSubmit}
-                  style={{
-                    background: '#a855f7',
-                    border: 'none',
-                    color: '#ffffff',
-                    padding: '5px 12px',
-                    borderRadius: '5px',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                    fontWeight: '600'
-                  }}
                 >
                   Connect
                 </button>
@@ -1194,13 +854,7 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
 
         {/* Local Delete Toast */}
         {deleteToast && (
-          <div style={{
-            position: 'absolute', bottom: '16px', right: '16px', zIndex: 1000,
-            background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)',
-            color: '#10b981', padding: '8px 14px', borderRadius: '6px', fontSize: '11px',
-            fontWeight: '500', backdropFilter: 'blur(8px)',
-            display: 'flex', alignItems: 'center', gap: '6px',
-          }}>
+          <div className="admin-toast admin-toast--panel">
             <CheckCircle size={12} />
             {deleteToast}
           </div>
@@ -1208,39 +862,36 @@ function KnowledgeGraphPanel({ refreshKey, theme }) {
       </div>
 
       {/* Legend */}
-      <div style={{
-        padding: '8px 16px',
-        borderTop: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.04)',
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '16px',
-        background: theme === 'light' ? '#f8fafc' : 'rgba(0,0,0,0.15)',
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(168,85,247,0.5)', border: '1px solid #a855f7', display: 'inline-block' }} />
+      <div className="kg-legend">
+        <div className="kg-legend-item">
+          <span className="kg-legend-swatch kg-legend-swatch--database" />
           Database
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(234,179,8,0.3)', border: '1px solid #eab308', display: 'inline-block' }} />
+        <div className="kg-legend-item">
+          <span className="kg-legend-swatch kg-legend-swatch--table" />
           Table
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(244,63,94,0.3)', border: '1px solid #f43f5e', display: 'inline-block' }} />
+        <div className="kg-legend-item">
+          <span className="kg-legend-swatch kg-legend-swatch--column" />
           Column
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '3px', background: 'rgba(6,182,212,0.3)', border: '1px solid #06b6d4', display: 'inline-block' }} />
+        <div className="kg-legend-item">
+          <span className="kg-legend-swatch kg-legend-swatch--entity" />
           Abstract Entity
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
-          <span style={{ width: '18px', height: '2px', background: 'rgba(168,85,247,0.5)', display: 'inline-block', borderRadius: '1px' }} />
+        <div className="kg-legend-item">
+          <span className="kg-legend-line kg-legend-line--contains" />
           CONTAINS
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10px', color: '#64748b' }}>
-          <span style={{ width: '18px', height: '2px', background: 'rgba(6,182,212,0.5)', display: 'inline-block', borderRadius: '1px', borderBottom: '2px dashed rgba(6,182,212,0.5)' }} />
+        <div className="kg-legend-item">
+          <span className="kg-legend-line kg-legend-line--related" />
           RELATED_TO
         </div>
+      </div>
+
+      <div className="fig-caption">
+        <span>Fig. 01 — {nodeCount} nodes, {edgeCount} edges</span>
+        <span className="fig-caption-right">Neo4j &middot; live</span>
       </div>
     </div>
   );
@@ -1364,31 +1015,25 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
   };
 
   return (
-    <div className={`ace-onboarding-wrapper ${theme}-theme`} style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <div className={`ace-onboarding-wrapper ${theme}-theme`} style={{ height: '100vh', overflow: 'hidden' }}>
 
       {/* ── Delete success toast ── */}
       {deleteToast && (
-        <div style={{
-          position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999,
-          background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)',
-          color: '#10b981', padding: '10px 18px', borderRadius: '8px', fontSize: '13px',
-          fontWeight: '500', backdropFilter: 'blur(8px)', boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
-          display: 'flex', alignItems: 'center', gap: '8px',
-        }}>
+        <div className="admin-toast admin-toast--fixed">
           <CheckCircle size={14} />
           {deleteToast}
         </div>
       )}
 
       {/* ── Shared Admin Header ── */}
-      <header className="ace-dashboard-header flex-center" style={{ flexShrink: 0 }}>
+      <header className="ace-dashboard-header flex-center">
         <div className="header-logo-section flex-center">
           <div className="header-logo-icon flex-center">
             <Layers size={18} />
           </div>
           <div>
-            <h1 className="header-title">ACE Onboarding</h1>
-            <p className="header-subtitle">Automatic Context Engineering Agent</p>
+            <h1 className="header-title">Metadata Registry</h1>
+            <p className="header-subtitle">Onboarded schemas and knowledge graph</p>
           </div>
         </div>
 
@@ -1399,7 +1044,7 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
             onClick={() => setAdminActiveTab('onboarding')}
           >
             <Server size={14} className="tab-icon" />
-            <span>Admin • ACE Onboarding</span>
+            <span>ACE Onboarding</span>
           </button>
 
           <button
@@ -1407,7 +1052,7 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
             className="nav-tab-item active flex-center"
           >
             <Database size={14} className="tab-icon" />
-            <span>Admin • Metadata Registry</span>
+            <span>Metadata Registry</span>
           </button>
 
           <button
@@ -1416,7 +1061,7 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
             onClick={() => setAdminActiveTab('query')}
           >
             <BookOpen size={14} className="tab-icon" />
-            <span>User • Query Execution</span>
+            <span>Query Execution</span>
           </button>
         </nav>
 
@@ -1425,26 +1070,11 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
             <div className="profile-avatar flex-center">C</div>
             <span className="profile-name">Chirag Admin</span>
           </div>
-          <button 
-            type="button" 
-            className="logout-button flex-center theme-toggle-btn-admin" 
+          <button
+            type="button"
+            className="theme-toggle-btn-admin flex-center"
             onClick={toggleTheme}
             title={theme === 'dark' ? "Switch to Light Mode" : "Switch to Dark Mode"}
-            style={{
-              background: 'transparent',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              padding: '6px',
-              borderRadius: '6px',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'all 0.15s ease',
-              width: '32px',
-              height: '32px',
-              marginRight: '8px'
-            }}
           >
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </button>
@@ -1460,116 +1090,55 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
       </header>
 
       {/* ── Stats Widgets ── */}
-      <div style={{
-        flexShrink: 0,
-        display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gap: '16px',
-        padding: '16px 20px',
-        borderBottom: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.04)',
-      }}>
+      <div className="registry-stats-grid">
         {/* Total Databases */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '14px',
-          background: theme === 'light' ? '#ffffff' : 'rgba(20,25,35,0.6)',
-          border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.05)',
-          borderRadius: '10px', padding: '14px 18px',
-          boxShadow: theme === 'light' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none',
-        }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '9px', background: 'rgba(168,85,247,0.12)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Database size={20} />
-          </div>
-          <div>
-            <p style={{ margin: 0, fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '600' }}>Total Databases</p>
-            <h3 style={{ margin: '3px 0 0', fontSize: '26px', color: theme === 'light' ? '#0f172a' : '#ffffff', fontWeight: '700', lineHeight: 1 }}>{stats?.total_databases ?? 0}</h3>
-          </div>
+        <div className="stat-card">
+          <h3 className="stat-value">{stats?.total_databases ?? 0}</h3>
+          <p className="stat-label"><Database size={13} /> Total Databases</p>
         </div>
 
         {/* Entities Extracted */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '14px',
-          background: theme === 'light' ? '#ffffff' : 'rgba(20,25,35,0.6)',
-          border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.05)',
-          borderRadius: '10px', padding: '14px 18px',
-          boxShadow: theme === 'light' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none',
-        }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '9px', background: 'rgba(16,185,129,0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Layers size={20} />
-          </div>
-          <div>
-            <p style={{ margin: 0, fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '600' }}>Abstract Entities</p>
-            <h3 style={{ margin: '3px 0 0', fontSize: '26px', color: '#10b981', fontWeight: '700', lineHeight: 1 }}>{stats?.entities_identified ?? 0}</h3>
-          </div>
+        <div className="stat-card">
+          <h3 className="stat-value">{stats?.entities_identified ?? 0}</h3>
+          <p className="stat-label"><Layers size={13} /> Abstract Entities</p>
         </div>
 
         {/* Service Health */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '14px',
-          background: theme === 'light' ? '#ffffff' : 'rgba(20,25,35,0.6)',
-          border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.05)',
-          borderRadius: '10px', padding: '14px 18px',
-          boxShadow: theme === 'light' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none',
-        }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '9px', background: 'rgba(6,182,212,0.1)', color: '#06b6d4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Activity size={20} />
-          </div>
-          <div>
-            <p style={{ margin: 0, fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '600' }}>Service Layer</p>
-            <h3 style={{ margin: '3px 0 0', fontSize: '15px', color: '#06b6d4', fontWeight: '600', lineHeight: 1.3 }}>Active (Neo4j / ES)</h3>
-          </div>
+        <div className="stat-card">
+          <h3 className="stat-value stat-value--service">Active (Neo4j / ES)</h3>
+          <p className="stat-label"><Activity size={13} /> Service Layer</p>
         </div>
       </div>
 
       {/* ── Split Pane: Registry Table (left) | Knowledge Graph (right) ── */}
       <div
         ref={containerRef}
-        style={{
-          flex: 1,
-          display: 'grid',
-          gridTemplateColumns: `${leftWidth}px 4px 1fr`,
-          overflow: 'hidden',
-          background: theme === 'light' ? '#f1f5f9' : 'rgba(255,255,255,0.04)',
-          position: 'relative'
-        }}
+        className="registry-split"
+        style={{ gridTemplateColumns: `${leftWidth}px 4px 1fr` }}
       >
 
         {/* LEFT: Registered Databases Table */}
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: theme === 'light' ? '#ffffff' : 'rgba(10,14,20,0.95)' }}>
+        <div className="registry-left">
           {/* Panel Header */}
-          <div style={{
-            padding: '14px 18px',
-            borderBottom: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.05)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: theme === 'light' ? '#f8fafc' : 'rgba(0,0,0,0.2)', flexShrink: 0,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="panel-step-badge">IDB</span>
-              <h2 className="panel-title" style={{ margin: 0, fontSize: '14px' }}>Registered Databases</h2>
+          <div className="registry-panel-header">
+            <div className="kg-panel-heading">
+              <h2 className="panel-title">Registered Databases</h2>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div className="registry-toolbar">
               <button
                 type="button"
+                className="registry-toolbar-btn"
                 onClick={fetchStats}
                 disabled={isLoading}
-                style={{
-                  background: theme === 'light' ? '#ffffff' : 'rgba(255,255,255,0.03)',
-                  border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.08)',
-                  color: theme === 'light' ? '#475569' : '#94a3b8', padding: '5px 10px', borderRadius: '6px',
-                  fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px',
-                }}
               >
                 <RefreshCw size={11} className={isLoading ? 'animate-spin' : ''} />
                 <span>Refresh</span>
               </button>
               <button
                 type="button"
+                className="registry-toolbar-btn registry-toolbar-btn--danger"
                 onClick={handleClearAll}
                 disabled={clearingGraph}
-                style={{
-                  background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)',
-                  color: '#ef4444', padding: '5px 10px', borderRadius: '6px',
-                  fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: '500',
-                }}
               >
                 {clearingGraph ? (
                   <><Loader2 size={11} className="animate-spin" /><span>Wiping...</span></>
@@ -1581,77 +1150,56 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
           </div>
 
           {/* Table */}
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="registry-table-scroll">
             {isLoading ? (
-              <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: '#64748b' }}>
-                <Loader2 size={28} className="animate-spin" style={{ color: '#a855f7' }} />
-                <span style={{ fontSize: '12px' }}>Loading databases...</span>
+              <div className="registry-empty-state">
+                <Loader2 size={28} className="animate-spin graph-loader-icon" />
+                <span>Loading databases...</span>
               </div>
             ) : stats?.databases && stats.databases.length > 0 ? (
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+              <table className="registry-table">
                 <thead>
-                  <tr style={{
-                    background: theme === 'light' ? '#f1f5f9' : 'rgba(0,0,0,0.25)',
-                    color: theme === 'light' ? '#475569' : '#64748b',
-                    borderBottom: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.05)',
-                    position: 'sticky', top: 0, zIndex: 1
-                  }}>
-                    <th style={{ padding: '12px 16px', fontWeight: '600' }}>Name</th>
-                    <th style={{ padding: '12px 16px', fontWeight: '600' }}>ID Hash</th>
-                    <th style={{ padding: '12px 16px', fontWeight: '600' }}>Status</th>
-                    <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'right' }}>Action</th>
+                  <tr>
+                    <th>Name</th>
+                    <th>ID Hash</th>
+                    <th>Status</th>
+                    <th className="align-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stats.databases.map((db, idx) => (
-                    <tr
-                      key={db.id}
-                      style={{
-                        borderBottom: theme === 'light' ? '1px solid #cbd5e1' : '1px solid rgba(255,255,255,0.03)',
-                        background: idx % 2 === 0 ? 'transparent' : (theme === 'light' ? '#f8fafc' : 'rgba(255,255,255,0.01)'),
-                        transition: 'background 0.15s',
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = theme === 'light' ? 'rgba(168,85,247,0.08)' : 'rgba(168,85,247,0.04)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : (theme === 'light' ? '#f8fafc' : 'rgba(255,255,255,0.01)'); }}
-                    >
-                      <td style={{ padding: '13px 16px', color: theme === 'light' ? '#0f172a' : '#ffffff', fontWeight: '500' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <Database size={14} style={{ color: '#a855f7', flexShrink: 0 }} />
+                  {stats.databases.map((db) => (
+                    <tr key={db.id}>
+                      <td>
+                        <div className="registry-name-cell">
+                          <Database size={14} className="registry-name-icon" />
                           <span>{db.name}</span>
                         </div>
                       </td>
-                      <td style={{ padding: '13px 16px', fontFamily: 'monospace', color: theme === 'light' ? '#64748b' : '#475569', fontSize: '10px' }}>
+                      <td className="registry-id-cell">
                         {db.id.slice(0, 12)}…
                       </td>
-                      <td style={{ padding: '13px 16px' }}>
+                      <td>
                         {db.status?.startsWith('failed') ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 7px', borderRadius: '4px', background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', fontSize: '10px' }}>
+                          <span className="status-pill status-pill--failed">
                             <XCircle size={11} /><span>Failed</span>
                           </span>
                         ) : db.status === 'running' ? (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 7px', borderRadius: '4px', background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.2)', fontSize: '10px' }}>
+                          <span className="status-pill status-pill--running">
                             <Loader2 size={11} className="animate-spin" /><span>Running</span>
                           </span>
                         ) : (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 7px', borderRadius: '4px', background: 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.2)', fontSize: '10px' }}>
+                          <span className="status-pill status-pill--active">
                             <CheckCircle size={11} /><span>Active</span>
                           </span>
                         )}
                       </td>
-                      <td style={{ padding: '13px 16px', textAlign: 'right' }}>
+                      <td className="align-right">
                         <button
                           type="button"
+                          className="registry-delete-btn"
                           onClick={() => handleDelete(db.id, db.name)}
                           disabled={deletingId === db.id}
                           title="Delete Schema"
-                          style={{
-                            background: 'transparent', border: 'none', color: '#ef4444',
-                            cursor: 'pointer', padding: '5px', borderRadius: '4px',
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            transition: 'all 0.15s',
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                         >
                           {deletingId === db.id
                             ? <Loader2 size={14} className="animate-spin" />
@@ -1664,10 +1212,10 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
                 </tbody>
               </table>
             ) : (
-              <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', color: '#64748b' }}>
-                <Database size={42} style={{ color: theme === 'light' ? '#cbd5e1' : '#334155', opacity: 0.5 }} />
-                <h3 style={{ margin: 0, color: theme === 'light' ? '#475569' : '#94a3b8', fontSize: '14px' }}>No Connected Databases</h3>
-                <p style={{ margin: 0, fontSize: '12px', textAlign: 'center', maxWidth: '260px' }}>
+              <div className="registry-empty-state">
+                <Database size={42} className="registry-empty-icon" />
+                <h3 className="registry-empty-title">No Connected Databases</h3>
+                <p className="registry-empty-desc">
                   Go to the Onboarding tab to configure and onboard database schemas.
                 </p>
               </div>
@@ -1678,20 +1226,11 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
         {/* Divider / Splitter bar */}
         <div
           onMouseDown={handleMouseDown}
-          style={{
-            width: '4px',
-            cursor: 'col-resize',
-            background: isDragging ? '#a855f7' : (theme === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'),
-            transition: 'background 0.2s',
-            zIndex: 10,
-            position: 'relative',
-          }}
-          onMouseEnter={(e) => { if (!isDragging) e.currentTarget.style.background = theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(168,85,247,0.5)'; }}
-          onMouseLeave={(e) => { if (!isDragging) e.currentTarget.style.background = theme === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'; }}
+          className={`split-divider ${isDragging ? 'dragging' : ''}`}
         />
 
         {/* RIGHT: Knowledge Graph Panel */}
-        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: theme === 'light' ? '#ffffff' : 'rgba(6,9,13,0.98)' }}>
+        <div className="registry-right">
           <ReactFlowProvider>
             <KnowledgeGraphPanel refreshKey={graphRefreshKey} theme={theme} />
           </ReactFlowProvider>
@@ -1701,55 +1240,17 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
 
       {/* ── Custom Confirmation Modal ── */}
       {confirmModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0, 0, 0, 0.7)',
-          backdropFilter: 'blur(5px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 99999,
-        }}>
-          <div style={{
-            background: theme === 'light' ? '#ffffff' : '#111827',
-            border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '12px',
-            padding: '24px',
-            width: '100%',
-            maxWidth: '440px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
-            color: theme === 'light' ? '#1f2937' : '#f3f4f6',
-            textAlign: 'left'
-          }}>
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-              <div style={{
-                background: 'rgba(239, 68, 68, 0.1)',
-                color: '#ef4444',
-                padding: '10px',
-                borderRadius: '50%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-              }}>
+        <div className="confirm-modal-overlay">
+          <div className="confirm-modal">
+            <div className="confirm-modal-body">
+              <div className="confirm-modal-icon">
                 <AlertTriangle size={24} />
               </div>
               <div style={{ flex: 1 }}>
-                <h3 style={{
-                  margin: '0 0 8px 0',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: theme === 'light' ? '#111827' : '#ffffff'
-                }}>
+                <h3 className="confirm-modal-title">
                   {confirmModal.type === 'delete' ? 'Delete Database Schema?' : 'Clear All Database Schemas?'}
                 </h3>
-                <p style={{
-                  margin: 0,
-                  fontSize: '13px',
-                  lineHeight: '1.5',
-                  color: theme === 'light' ? '#4b5563' : '#9ca3af'
-                }}>
+                <p className="confirm-modal-desc">
                   {confirmModal.type === 'delete' ? (
                     <>
                       Are you sure you want to delete the schema for <strong>"{confirmModal.name}"</strong>? This will permanently remove its metadata registry, Neo4j knowledge graph nodes, and Elasticsearch vector embeddings.
@@ -1763,33 +1264,17 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
               </div>
             </div>
 
-            <div style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              gap: '12px',
-              marginTop: '24px'
-            }}>
+            <div className="confirm-modal-actions">
               <button
                 type="button"
+                className="admin-modal-btn admin-modal-btn--secondary"
                 onClick={() => setConfirmModal(null)}
-                style={{
-                  background: theme === 'light' ? '#f3f4f6' : 'rgba(255, 255, 255, 0.05)',
-                  border: theme === 'light' ? '1px solid #d1d5db' : '1px solid rgba(255, 255, 255, 0.08)',
-                  color: theme === 'light' ? '#374151' : '#d1d5db',
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  transition: 'background 0.2s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = theme === 'light' ? '#e5e7eb' : 'rgba(255, 255, 255, 0.1)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = theme === 'light' ? '#f3f4f6' : 'rgba(255, 255, 255, 0.05)'; }}
               >
                 Cancel
               </button>
               <button
                 type="button"
+                className="admin-modal-btn admin-modal-btn--danger"
                 onClick={async () => {
                   const modal = confirmModal;
                   setConfirmModal(null);
@@ -1799,19 +1284,6 @@ export default function MetadataRegistry({ onLogout, adminActiveTab, setAdminAct
                     await executeClearAll();
                   }
                 }}
-                style={{
-                  background: '#ef4444',
-                  border: 'none',
-                  color: '#ffffff',
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  transition: 'background 0.2s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#dc2626'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#ef4444'; }}
               >
                 {confirmModal.type === 'delete' ? 'Delete' : 'Wipe All'}
               </button>
