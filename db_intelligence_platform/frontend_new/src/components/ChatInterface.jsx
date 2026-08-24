@@ -17,99 +17,13 @@ import {
   Check, 
   Code,
   FileSpreadsheet,
-  Search
+  Search,
+  Maximize2,
+  X
 } from 'lucide-react';
+import ReactECharts from 'echarts-for-react';
 
-// Lightweight zero-dependency canvas bar chart
-function CanvasBarChart({ chartSpec, theme }) {
-  const canvasRef = useRef(null);
-
-  useEffect(() => {
-    if (!canvasRef.current || !chartSpec) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const W = canvas.offsetWidth || 500;
-    const H = 220;
-    canvas.width = W;
-    canvas.height = H;
-
-    // Extract labels + values from ECharts-style spec
-    const labels = chartSpec?.xAxis?.data || [];
-    const series = chartSpec?.series || [];
-    const values = series[0]?.data || [];
-    if (!labels.length || !values.length) {
-      ctx.fillStyle = theme === 'light' ? '#64748b' : '#94a3b8';
-      ctx.font = '13px Inter, sans-serif';
-      ctx.fillText('No chart data available', 20, H / 2);
-      return;
-    }
-
-    const numericVals = values.map(v => Number(v) || 0);
-    const maxVal = Math.max(...numericVals, 1);
-    const pad = { top: 20, right: 20, bottom: 50, left: 60 };
-    const chartW = W - pad.left - pad.right;
-    const chartH = H - pad.top - pad.bottom;
-    const barW = Math.max(6, Math.floor(chartW / labels.length) - 6);
-
-    // Background
-    ctx.fillStyle = 'transparent';
-    ctx.clearRect(0, 0, W, H);
-
-    // Y-axis gridlines
-    const gridLines = 4;
-    for (let i = 0; i <= gridLines; i++) {
-      const y = pad.top + chartH - (i / gridLines) * chartH;
-      ctx.beginPath();
-      ctx.strokeStyle = theme === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
-      ctx.lineWidth = 1;
-      ctx.moveTo(pad.left, y);
-      ctx.lineTo(pad.left + chartW, y);
-      ctx.stroke();
-      const labelVal = ((maxVal * i) / gridLines).toFixed(0);
-      ctx.fillStyle = theme === 'light' ? '#475569' : '#64748b';
-      ctx.font = '10px Inter, sans-serif';
-      ctx.textAlign = 'right';
-      ctx.fillText(labelVal, pad.left - 6, y + 3);
-    }
-
-    // Bars
-    labels.forEach((label, idx) => {
-      const val = numericVals[idx];
-      const bh = Math.max(2, (val / maxVal) * chartH);
-      const x = pad.left + idx * (chartW / labels.length) + (chartW / labels.length - barW) / 2;
-      const y = pad.top + chartH - bh;
-
-      // Gradient bar
-      const grad = ctx.createLinearGradient(x, y, x, y + bh);
-      grad.addColorStop(0, '#a855f7');
-      grad.addColorStop(1, '#7c3aed');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.roundRect(x, y, barW, bh, [3, 3, 0, 0]);
-      ctx.fill();
-
-      // X-label
-      ctx.fillStyle = theme === 'light' ? '#475569' : '#94a3b8';
-      ctx.font = '9px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      const shortLabel = String(label).length > 10 ? String(label).slice(0, 9) + '…' : String(label);
-      ctx.fillText(shortLabel, x + barW / 2, H - pad.bottom + 14);
-
-      // Value on top
-      ctx.fillStyle = theme === 'light' ? '#0f172a' : '#e2e8f0';
-      ctx.font = 'bold 9px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(val.toLocaleString(), x + barW / 2, y - 4);
-    });
-  }, [chartSpec, theme]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: '220px', display: 'block' }}
-    />
-  );
-}
+// Removed CanvasBarChart in favor of echarts-for-react
 
 const TRANSLATIONS = {
   en: {
@@ -198,6 +112,8 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
   const [showSchema, setShowSchema] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState(null);
   const [showThoughts, setShowThoughts] = useState({});
+  const [selectedCharts, setSelectedCharts] = useState({});
+  const [expandedChartInfo, setExpandedChartInfo] = useState(null);
 
   const chatEndRef = useRef(null);
   const settingsRef = useRef(null); // Ref to detect clicks outside dropdown
@@ -307,7 +223,7 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
         thoughts: thoughts,
         columns: columns,
         rows: rows,
-        chartSpec: data.visualizations?.spec,
+        chartSpecs: Array.isArray(data.visualizations) ? data.visualizations : (data.visualizations?.spec ? [{type: 'bar', spec: data.visualizations.spec}] : null),
         databaseName: data.database_name || data.database_id,
         timestamp: new Date().toLocaleString('en-US', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
       };
@@ -570,6 +486,30 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
 
   return (
     <div className="chat-interface-wrapper">
+      {/* Expanded Chart Modal */}
+      {expandedChartInfo && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: 'var(--bg-card)', width: '80vw', height: '80vh', borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', border: '1px solid var(--border-color)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ color: 'var(--text-primary)', fontSize: '18px', fontWeight: '600' }}>{expandedChartInfo.name || 'Expanded Chart'}</h2>
+              <button 
+                onClick={() => setExpandedChartInfo(null)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <ReactECharts 
+                option={{ ...expandedChartInfo.spec, backgroundColor: 'transparent' }} 
+                theme={theme === 'dark' ? 'dark' : undefined}
+                style={{ height: '100%', width: '100%' }}
+                opts={{ renderer: 'svg' }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {chatWithDbEnabled && (
         <div className="db-context-header flex-center">
           <div className="db-status-section flex-center">
@@ -836,14 +776,63 @@ export default function ChatInterface({ lang, theme = 'dark', presetQuery, clear
                       </div>
                     )}
 
-                    {/* Canvas Bar Chart Visualizations */}
-                    {msg.chartSpec && (
+                    {/* Visualizations (ECharts) */}
+                    {msg.chartSpecs && msg.chartSpecs.length > 0 && (
                       <div className="agent-chart-section" style={{ margin: '8px 16px', border: '1px solid var(--border-light)', borderRadius: '8px', overflow: 'hidden', background: 'var(--bg-card)', padding: '16px', backdropFilter: 'blur(8px)', boxShadow: theme === 'light' ? '0 4px 6px -1px rgba(0,0,0,0.05)' : 'none' }}>
-                        <div className="chart-header-title flex-center" style={{ margin: '0 0 12px 0', color: 'var(--text-secondary)', fontSize: '11px', gap: '6px', justifyContent: 'flex-start' }}>
-                          <BarChart2 size={12} style={{ color: theme === 'light' ? '#7c3aed' : 'inherit' }} />
-                          <span>{t.visualChart}</span>
+                        <div className="chart-header flex-center" style={{ margin: '0 0 12px 0', justifyContent: 'space-between' }}>
+                          <div className="chart-header-title flex-center" style={{ color: 'var(--text-secondary)', fontSize: '11px', gap: '6px' }}>
+                            <BarChart2 size={12} style={{ color: theme === 'light' ? '#7c3aed' : 'inherit' }} />
+                            <span>{t.visualChart}</span>
+                          </div>
+                          
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            {msg.chartSpecs.length > 1 && (
+                              <div style={{ display: 'flex', background: 'var(--bg-hover)', borderRadius: '4px', padding: '2px' }}>
+                                {msg.chartSpecs.map((chartOpt, idx) => (
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={() => setSelectedCharts(prev => ({ ...prev, [msg.id]: idx }))}
+                                    style={{
+                                      background: (selectedCharts[msg.id] || 0) === idx ? 'var(--bg-card)' : 'transparent',
+                                      border: 'none',
+                                      color: (selectedCharts[msg.id] || 0) === idx ? 'var(--text-primary)' : 'var(--text-secondary)',
+                                      padding: '4px 8px',
+                                      fontSize: '10px',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      boxShadow: (selectedCharts[msg.id] || 0) === idx ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                                      textTransform: 'capitalize'
+                                    }}
+                                  >
+                                    {chartOpt.name || chartOpt.type}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const activeIdx = selectedCharts[msg.id] || 0;
+                                setExpandedChartInfo(msg.chartSpecs[activeIdx]);
+                              }}
+                              style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                              title="Expand Chart"
+                            >
+                              <Maximize2 size={14} />
+                            </button>
+                          </div>
                         </div>
-                        <CanvasBarChart chartSpec={msg.chartSpec} theme={theme} />
+                        
+                        <div style={{ height: '250px', width: '100%' }}>
+                          <ReactECharts 
+                            option={{ ...msg.chartSpecs[selectedCharts[msg.id] || 0].spec, backgroundColor: 'transparent' }} 
+                            theme={theme === 'dark' ? 'dark' : undefined}
+                            style={{ height: '100%', width: '100%' }}
+                            opts={{ renderer: 'svg' }}
+                          />
+                        </div>
                       </div>
                     )}
 

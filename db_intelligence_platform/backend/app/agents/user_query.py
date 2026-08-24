@@ -238,11 +238,21 @@ async def generate_sql_node(state: QueryState):
             sql = sql[:-3]
             
         target_db = result.get("target_database_id", "")
+        if not target_db:
+            target_db = result.get("database_id", "")
+            
         target_db_name = ""
+        db_found = False
         for db in available_databases:
             if db.get("database_id") == target_db:
                 target_db_name = db.get("database_name", target_db)
+                db_found = True
                 break
+                
+        # Fallback to the first available database if the LLM didn't return a valid one
+        if not db_found and available_databases:
+            target_db = available_databases[0].get("database_id")
+            target_db_name = available_databases[0].get("database_name", target_db)
                 
         print(f"[DEBUG] Generated SQL Query:\n{sql}\n")
         return {"generated_sql": sql.strip(), "database_id": target_db, "database_name": target_db_name}
@@ -300,7 +310,7 @@ async def synthesize_answer_node(state: QueryState):
         base_url=settings.OPENAI_BASE_URL
     )
     
-    results_str = json.dumps(state.get("query_results", [])[:100]) # Limit to first 100 rows
+    results_str = json.dumps(state.get("query_results", [])[:100], default=str) # Limit to first 100 rows
     
     prompt = f"""
     You are an expert data analyst. The user asked a business question. 
@@ -324,7 +334,7 @@ async def synthesize_answer_node(state: QueryState):
         return {"synthesized_answer": f"Based on the extracted database rows, I found {len(state.get('query_results', []))} records that match your request."}
 
 async def recommend_visualizations_node(state: QueryState):
-    """LLM determines the best chart type and JSON spec for the frontend ECharts."""
+    """LLM determines the best chart types and JSON specs for the frontend ECharts."""
     print("----- [QUERY NODE: recommend_visualizations] Started -----")
     
     query_results = state.get("query_results", [])
@@ -342,37 +352,44 @@ async def recommend_visualizations_node(state: QueryState):
     prompt = f"""
     You are an expert Data Visualization Agent. 
     You have been given a dataset resulting from a SQL query.
-    Your task is to determine if this data can be meaningfully visualized as a Bar Chart.
+    Your task is to determine if this data can be meaningfully visualized, and if so, generate multiple ECharts configurations for it (e.g., Bar, Line, Pie).
     
     Data:
     {json.dumps(sample_data, default=str)}
     
-    Criteria for a Bar Chart:
-    - There must be at least one column that represents a categorical or time-based label (e.g., Bank Name, Month, ID).
-    - There must be at least one column that represents a numerical value (e.g., Count, Amount, Score).
+    Criteria for Visualizations:
+    - There must be at least one column that represents a categorical or time-based label.
+    - There must be at least one column that represents a numerical value.
+    - IMPORTANT: Include "tooltip": {{"trigger": "axis"}} or {{"trigger": "item"}} in every spec to enable hover data.
+    - IMPORTANT: Always add data labels to the charts so values are visible on the chart itself without hovering! For example, in the "series" array, add `"label": {{"show": true, "position": "top"}}` for Bar/Line charts, and appropriate label settings for Pie charts.
     
-    If the data is NOT suitable for a Bar Chart (e.g., just a list of text names, or raw unstructured data), return a JSON object with "is_visualizable": false.
+    If the data is NOT suitable for a chart (e.g., just a list of text names, or raw unstructured data), return a JSON object with "is_visualizable": false.
     
-    If it IS suitable, return a JSON object with "is_visualizable": true, and provide the exact JSON specification in the "spec" field.
+    If it IS suitable, return a JSON object with "is_visualizable": true, and provide an array of charts in the "charts" field. For example, provide a Bar chart, a Line chart, and a Pie chart if applicable.
     
-    The frontend component strictly expects the following structure in the spec:
+    Format:
     {{
-      "xAxis": {{
-        "data": ["Label1", "Label2", ...]
-      }},
-      "series": [
+      "is_visualizable": true_or_false,
+      "charts": [
         {{
-          "data": [10, 20, ...]
+          "type": "bar",
+          "name": "Bar Chart",
+          "spec": {{ ... ECharts spec ... }}
+        }},
+        {{
+          "type": "line",
+          "name": "Line Chart",
+          "spec": {{ ... ECharts spec ... }}
+        }},
+        {{
+          "type": "pie",
+          "name": "Pie Chart",
+          "spec": {{ ... ECharts spec ... }}
         }}
       ]
     }}
     
     CRITICAL: You MUST output a raw JSON object. Do not wrap in markdown code blocks.
-    Format:
-    {{
-      "is_visualizable": true_or_false,
-      "spec": {{ ... }}
-    }}
     """
     
     try:
@@ -384,10 +401,9 @@ async def recommend_visualizations_node(state: QueryState):
         content = response.choices[0].message.content
         result = json.loads(content)
         
-        if result.get("is_visualizable") and result.get("spec"):
-            print("[DEBUG] Visualization Recommended successfully.")
-            # Wrap the spec in the format expected by the graph state
-            return {"recommended_visualizations": {"type": "bar", "spec": result.get("spec")}}
+        if result.get("is_visualizable") and result.get("charts"):
+            print("[DEBUG] Visualizations Recommended successfully.")
+            return {"recommended_visualizations": result.get("charts")}
         else:
             print("[DEBUG] Data determined not suitable for visualization.")
             return {"recommended_visualizations": None}
