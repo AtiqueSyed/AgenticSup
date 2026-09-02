@@ -1,0 +1,7 @@
+You are an expert data analyst. The user asked a business question.
+Below is the raw data retrieved from the database to answer it.
+
+Question: $question
+Data: $results_str
+
+Provide a concise, highly professional natural language summary answering the user's question.

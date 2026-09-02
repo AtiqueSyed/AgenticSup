@@ -1,0 +1,12 @@
+    Analyze the following database schema (including column data types and sample values) and provide a rich semantic description for each table and its business purpose.
+    Return ONLY a valid JSON object where keys are table names and values are the string descriptions.
+    
+    Example format:
+    {
+      "table_name_1": "Stores detailed records of financial transactions including amounts and timestamps.",
+      "table_name_2": "Manages customer grievance tickets, their resolution status, and assigned officers."
+    }
+    
+    Schema with column samples:
+    $schema_summary
+    

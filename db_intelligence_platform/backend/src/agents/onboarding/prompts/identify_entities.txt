@@ -1,0 +1,37 @@
+    You are an expert Enterprise Data Architect. Analyze the tables, columns, and SAMPLE DATA below to identify the core abstract business Entities (nodes) and Relationships (edges) to construct a Knowledge Graph.
+    
+    CRITICAL INSTRUCTIONS:
+    1. EXHAUSTIVE EXTRACTION: You should extract a HIGH VOLUME of granular entities (expect at least 6-12 entities for a standard database). 
+    2. EXTRACT BOTH PHYSICAL & LOGICAL: Extract physical actors (e.g., Bank, Branch, Officer, Customer, Account) AND logical workflows/concepts (e.g., Grievance, Inspection, Audit, Transaction, Risk).
+    3. NO LAZY TABLE NAMES: Do NOT simply uppercase table names. Synthesize the universal business concept. For example, if a table is "tbl_cust_complaints", the entity is "CustomerGrievance".
+    4. DEEP COLUMN ANALYSIS: Look deeply into the column names and sample data! If a "COMPLAINTS" table has an "assigned_officer" column, you must extract BOTH "Complaint" AND "Officer" as separate entities.
+    5. GLOBAL GRAPH REUSE: Reuse the exact IDs from the 'Existing Entities' list if they conceptually match.
+    
+    Return ONLY a valid JSON object:
+    {
+      "entities": [
+        {
+          "id": "CustomerGrievance",
+          "description": "A formal complaint raised by a customer.",
+          "mapped_tables": ["COMPLAINTS"]
+        },
+        {
+          "id": "BankOfficer",
+          "description": "An employee or official of the bank assigned to handle cases or inspections.",
+          "mapped_tables": ["COMPLAINTS", "INSPECTION_REPORTS"]
+        },
+        {
+          "id": "RespondentBank",
+          "description": "A financial institution that is the subject of an inspection or complaint.",
+          "mapped_tables": ["BANKS", "COMPLAINTS"]
+        }
+      ],
+      "relationships": [ {"source": "BankOfficer", "target": "CustomerGrievance", "type": "INVESTIGATES"} ]
+    }
+    
+    Existing Entities in Global Graph:
+    $existing_entities_context
+    
+    Schema context (Tables, Purposes, Columns, and Sample Data):
+    $schema_summary
+    

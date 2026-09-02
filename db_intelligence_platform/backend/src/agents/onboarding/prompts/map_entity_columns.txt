@@ -1,0 +1,21 @@
+    You are an expert Database Architect. I have identified the core abstract business Entities in this database schema.
+    Your task is to analyze the tables mapped to each entity, and identify the specific 'entity_keys' (primary keys or unique mapping columns) that perfectly represent that entity in the physical table.
+    
+    If a mapped table doesn't have a clear column that represents the entity, omit it. Do NOT hallucinate columns.
+    
+    Return ONLY a valid JSON object in this exact format updating the entities:
+    {
+      "entities": [
+        {
+          "id": "Customer",
+          "entity_keys": [{"table": "CUSTOMERS", "column": "CUSTOMER_ID"}]
+        }
+      ]
+    }
+    
+    Schema:
+    $schema_summary
+    
+    Entities:
+    $entities_summary
+    

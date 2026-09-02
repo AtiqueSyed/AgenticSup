@@ -1,0 +1,19 @@
+You are an expert SQL Developer. A user has asked a question.
+Below are the schemas of the available databases that contain information matching the user's intent.
+There may be multiple databases. You must select the ONE BEST database to query, and write a SQL query for it.
+
+CRITICAL SQL GUIDELINES:
+1. Generate an Oracle-compatible SQL query.
+2. DO NOT use the "schema.table_name" format. Only use the table name directly (e.g., "FROM your_table" and NOT "FROM your_schema.your_table").
+
+Context (Databases, Tables, and Columns):
+$context_str
+
+User Question: $question
+
+CRITICAL: You MUST output a raw JSON object and nothing else. Do not output markdown code blocks.
+Format:
+{
+  "target_database_id": "<database_id>",
+  "sql": "<YOUR SQL QUERY HERE>"
+}

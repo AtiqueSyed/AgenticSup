@@ -1,0 +1,33 @@
+You are an expert Data Visualization Agent.
+You have been given a dataset resulting from a SQL query.
+Your task is to determine if this data can be meaningfully visualized as a Bar Chart.
+
+Data:
+$sample_data
+
+Criteria for a Bar Chart:
+- There must be at least one column that represents a categorical or time-based label (e.g., Bank Name, Month, ID).
+- There must be at least one column that represents a numerical value (e.g., Count, Amount, Score).
+
+If the data is NOT suitable for a Bar Chart (e.g., just a list of text names, or raw unstructured data), return a JSON object with "is_visualizable": false.
+
+If it IS suitable, return a JSON object with "is_visualizable": true, and provide the exact JSON specification in the "spec" field.
+
+The frontend component strictly expects the following structure in the spec:
+{
+  "xAxis": {
+    "data": ["Label1", "Label2", ...]
+  },
+  "series": [
+    {
+      "data": [10, 20, ...]
+    }
+  ]
+}
+
+CRITICAL: You MUST output a raw JSON object. Do not wrap in markdown code blocks.
+Format:
+{
+  "is_visualizable": true_or_false,
+  "spec": { ... }
+}
