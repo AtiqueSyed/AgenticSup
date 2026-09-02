@@ -177,7 +177,6 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
       
       const mappedEdges = data.edges.map(e => ({
         ...e,
-        animated: e.type !== 'CONTAINS',
         ...buildAceEdgeVisual(c),
       }));
       setEdges(mappedEdges);
@@ -196,10 +195,15 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
     }
   };
 
+  // Both database_name and connection_string are min_length=1 on the server.
+  const canStartPipeline =
+    dbName.trim() !== '' &&
+    (sourceType === 'unstructured' ? nosqlUrl.trim() : connUrl.trim()) !== '';
+
   // Run Onboarding ReAct Loop using the Real API
   const handleStartPipeline = async () => {
-    if (pipelineStatus === 'running') return;
-    
+    if (pipelineStatus === 'running' || !canStartPipeline) return;
+
     setPipelineStatus('running');
     setCurrentStep(1);
     setLogs([]);
@@ -516,7 +520,7 @@ export default function ACEOnboarding({ onLogout, adminActiveTab, setAdminActive
               type="button"
               className={`start-pipeline-btn flex-center ${pipelineStatus === 'running' ? 'running' : ''}`}
               onClick={handleStartPipeline}
-              disabled={pipelineStatus === 'running'}
+              disabled={pipelineStatus === 'running' || !canStartPipeline}
             >
               {pipelineStatus === 'running' ? (
                 <>
