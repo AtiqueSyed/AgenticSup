@@ -24,3 +24,10 @@ Thumbs.db
 # Node
 node_modules/
 dist/
+node.zip
+node-v*/
+
+# Secrets
+.env
+.env.*
+!.env.example
