@@ -9,7 +9,6 @@ __pycache__/
 !.env.example
 
 # Contains live Oracle usernames/passwords in plaintext (see Settings.REGISTRY_PATH,
-# default "registry.json" -- configurable). This file is ALREADY committed in git
-# history, so ignoring it only stops future commits: it still needs
-# `git rm --cached registry.json` plus rotating every credential inside it.
+# default "registry.json" -- configurable). Untracked as of this branch, but it is
+# still present in earlier history: every credential inside it needs rotating.
 registry.json

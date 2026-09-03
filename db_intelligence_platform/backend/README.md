@@ -153,11 +153,10 @@ and point `OTEL_EXPORTER_OTLP_ENDPOINT` at it (default:
 ## Security notes
 
 - `registry.json` holds **plaintext Oracle usernames and passwords** for every
-  onboarded database and is already committed in git history. It's now
-  git-ignored going forward (see `.gitignore`), but that alone doesn't remove
-  it from history: run `git rm --cached registry.json` and **rotate every
-  credential in it**. Its location is configurable via the `REGISTRY_PATH`
-  setting if you want to move it outside the repo entirely.
-- `.env` is likewise tracked in git history and should be untracked
-  (`git rm --cached .env`) with its secrets rotated. Only `.env.example`
-  (a template with no real values) is meant to be committed.
+  onboarded database. It is untracked and git-ignored, and the app recreates it
+  on first onboarding -- but it remains in earlier git history, which is already
+  pushed. Untracking cannot undo that: **rotate every credential in it**. Its
+  location is configurable via the `REGISTRY_PATH` setting if you want it
+  outside the repo entirely.
+- `.env` is likewise in earlier git history and its secrets need rotating. Only
+  `.env.example` (a template with no real values) is committed.
