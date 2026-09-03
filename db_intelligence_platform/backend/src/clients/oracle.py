@@ -46,7 +46,12 @@ class OracleEngineFactory:
     @asynccontextmanager
     async def connect(self, connection_string: str, *, timeout: int = DEFAULT_CONNECT_TIMEOUT):
         """Connection scoped to a ``with`` block; the engine is always disposed."""
-        engine = self.create(connection_string, connect_args={"timeout": timeout})
+        # ``tcp_connect_timeout``, not ``timeout``: oracledb.connect_async() has no
+        # ``timeout`` parameter, so the old spelling raised TypeError on every single
+        # Oracle call -- schema extraction and SQL execution alike.
+        engine = self.create(
+            connection_string, connect_args={"tcp_connect_timeout": timeout}
+        )
         try:
             async with engine.connect() as connection:
                 yield connection

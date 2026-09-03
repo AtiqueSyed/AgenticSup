@@ -1,31 +1,38 @@
-version: "3.8"
+# Local end-to-end stack. Tuned to fit an 8 GB Mac with Docker Desktop at 6 GB:
+# every JVM/SGA heap below is capped on purpose -- the defaults do not fit.
+#
+#   docker compose up -d --wait                    # ~4.2 GB: app infra + traces
+#   docker compose --profile metrics up -d --wait  # ~4.6 GB: adds Prometheus + Grafana
+#
+# The backend normally runs on the host (uv run uvicorn src.main:app), which is why
+# backend/.env uses localhost hostnames; the `backend` service below overrides them
+# with in-network names for the fully containerised path.
 
 services:
-  frontend:
-    build:
-      context: ./frontend_new
+  # ---------------------------------------------------------------- target database
+  oracle:
+    image: gvenzl/oracle-free:23-slim-faststart
     ports:
-      - "5174:80"
-    depends_on:
-      - backend
-
-  backend:
-    build:
-      context: ./backend
-    ports:
-      - "8000:8000"
-    env_file:
-      - ./backend/.env
+      - "1521:1521"
     environment:
-      - NEO4J_URI=bolt://neo4j:7687
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - HAZELCAST_HOST=hazelcast
-      - ORACLE_HOST=host.docker.internal
-    depends_on:
-      - neo4j
-      - elasticsearch
-      - hazelcast
+      # SYS/SYSTEM password. The app never uses this -- it connects as CMS / DAKSH,
+      # created by infra/oracle/init/01_users.sql.
+      - ORACLE_PASSWORD=oracle
+      # First-boot only. Changing these later requires `docker compose down -v`.
+      - INIT_SGA_SIZE=1024
+      - INIT_PGA_SIZE=256
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+      # Runs once, when the database is first created.
+      - ./infra/oracle/init:/container-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 60s
 
+  # ------------------------------------------------------------- knowledge graph
   neo4j:
     image: neo4j:5.12.0
     ports:
@@ -33,28 +40,108 @@ services:
       - "7687:7687"
     environment:
       - NEO4J_AUTH=neo4j/password
+      - NEO4J_server_memory_heap_initial__size=512m
+      - NEO4J_server_memory_heap_max__size=512m
+      - NEO4J_server_memory_pagecache_size=256m
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
 
+  # ------------------------------------------------------------- vector search
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.10.2
-    environment:
-      - discovery.type=single-node
-      - ELASTIC_PASSWORD=oZ1npMQ5_TYwAxi2LfEe
-      - xpack.security.enabled=false
     ports:
       - "9200:9200"
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.10.2
     environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # ------------------------------------------------------------- telemetry
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    command: ["--config=/etc/otel/config.yaml"]
     ports:
-      - "5601:5601"
+      - "4317:4317"   # OTLP gRPC -- what the backend exports to
+      - "8889:8889"   # Prometheus scrape endpoint for metrics
+    volumes:
+      - ./infra/otel/collector-config.yaml:/etc/otel/config.yaml:ro
     depends_on:
-      - elasticsearch
+      - jaeger
 
-  hazelcast:
-    image: hazelcast/hazelcast:5.3.2
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
     ports:
-      - "5701:5701"
+      - "16686:16686"   # UI
     environment:
-      - HZ_CLUSTERNAME=devbackend
+      - COLLECTOR_OTLP_ENABLED=true
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    profiles: ["metrics"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ["metrics"]
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
+  # ------------------------------------------------------------- application
+  # Optional: the backend usually runs on the host for reload + console traces.
+  #   docker compose --profile app up -d backend frontend
+  backend:
+    build:
+      context: ./backend
+    profiles: ["app"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ORACLE_HOST=oracle
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    depends_on:
+      oracle:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend_new
+    profiles: ["app"]
+    ports:
+      - "5174:80"
+    depends_on:
+      - backend
+
+volumes:
+  oracle_data:
+  neo4j_data:

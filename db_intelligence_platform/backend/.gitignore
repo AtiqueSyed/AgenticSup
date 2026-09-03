@@ -12,3 +12,7 @@ __pycache__/
 # default "registry.json" -- configurable). Untracked as of this branch, but it is
 # still present in earlier history: every credential inside it needs rotating.
 registry.json
+
+# Any variant of the registry, not just the exact filename -- it holds plaintext
+# Oracle credentials and a .bak of it was previously unignored.
+registry.json*

@@ -57,9 +57,17 @@ class Neo4jClient:
                 for cypher, params in statements:
                     await session.run(cypher, **params)
 
-    async def scalar(self, cypher: str, key: str, *, default: Any = 0, **params: Any) -> Any:
-        """Single value from a single record -- counts, existence checks."""
-        records = await self.run(cypher, operation="scalar", **params)
+    async def scalar(
+        self, cypher: str, key: str, *, default: Any = 0, operation: str = "scalar", **params: Any
+    ) -> Any:
+        """Single value from a single record -- counts, existence checks.
+
+        ``operation`` is named explicitly rather than left to ``**params``: callers pass
+        it to label the span, and letting it fall through to the Cypher parameters made
+        ``run`` receive it twice (TypeError, swallowed by the caller's except clause --
+        so /stats silently reported 0 entities).
+        """
+        records = await self.run(cypher, operation=operation, **params)
         if not records:
             return default
         return records[0].get(key, default)

@@ -9,6 +9,7 @@ cyclomatic-complexity target is met.
 """
 
 from abc import ABC, abstractmethod
+from time import perf_counter
 from typing import Any
 
 from src.clients.container import Clients
@@ -58,12 +59,22 @@ class BaseNode(ABC):
             "db.id": str(state.get("database_id") or "-"),
         }
         with tracer.start_as_current_span(f"{self.agent}.{self.name}", attributes=attributes) as span:
+            # The histogram is recorded in ``finally`` so a failed node is timed too --
+            # a node that reliably blows up after 30s is exactly what you want on a chart.
+            started = perf_counter()
+            outcome = "error"
             try:
                 result = await self.run(state)
+                outcome = "ok"
             except Exception as exc:
                 record_exception(span, exc)
                 self.log.exception("Node failed")
                 return self.failure(state, exc)
+            finally:
+                _duration.record(
+                    (perf_counter() - started) * 1000,
+                    {"agent.name": self.agent, "agent.node": self.name, "outcome": outcome},
+                )
             span.set_attribute("agent.node.status", "ok")
             return result
 

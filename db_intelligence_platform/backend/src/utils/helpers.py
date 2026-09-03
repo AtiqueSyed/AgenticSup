@@ -27,6 +27,9 @@ TModel = TypeVar("TModel", bound=BaseModel)
 _PROMPTS_ROOT = Path(__file__).resolve().parent.parent / "agents"
 
 _FENCE_RE = re.compile(r"^\s*```(?:json|sql)?\s*|\s*```\s*$", re.IGNORECASE)
+# Some models (e.g. nemotron's smaller siblings) inline their chain-of-thought into
+# `content` instead of a separate `reasoning_content` field -- strip it before parsing.
+_THINK_RE = re.compile(r"<think>.*?(?:</think>|$)", re.IGNORECASE | re.DOTALL)
 
 
 class PromptNotFoundError(FileNotFoundError):
@@ -77,15 +80,45 @@ def parse_llm_json(content: str | None, model: type[TModel]) -> TModel:
     if not content:
         raise LLMResponseError("LLM returned an empty response")
 
+    cleaned = strip_code_fences(_THINK_RE.sub("", content))
     try:
-        payload = json.loads(strip_code_fences(content))
+        payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        raise LLMResponseError(f"LLM response is not valid JSON: {exc}") from exc
+        # Prose the model added around the JSON despite being told not to -- fall back
+        # to the outermost balanced object/array in what's left.
+        payload = _extract_json_span(cleaned)
+        if payload is None:
+            raise LLMResponseError(f"LLM response is not valid JSON: {exc}") from exc
+
+    # `{}` is well-formed JSON that says nothing. Every schema here is a LenientModel
+    # whose fields default to empty, so an empty payload validates cleanly and the
+    # caller silently receives zero entities / zero sub-questions instead of an error.
+    # Treated as a failure so the caller's one retry gets a real answer -- observed on
+    # a 30B MoE under reduced reasoning, and the failure mode is invisible otherwise.
+    if payload in ({}, []):
+        raise LLMResponseError(f"LLM returned an empty JSON payload for {model.__name__}")
 
     try:
         return model.model_validate(payload)
     except ValidationError as exc:
         raise LLMResponseError(f"LLM response failed {model.__name__} validation: {exc}") from exc
+
+
+def _extract_json_span(text: str) -> Any | None:
+    """The outermost balanced ``{...}`` or ``[...]`` in ``text``, or ``None``."""
+    for open_ch, close_ch in (("{", "}"), ("[", "]")):
+        start = text.find(open_ch)
+        if start == -1:
+            continue
+        depth = 0
+        for i, ch in enumerate(text[start:], start):
+            depth += (ch == open_ch) - (ch == close_ch)
+            if depth == 0:
+                try:
+                    return json.loads(text[start : i + 1])
+                except json.JSONDecodeError:
+                    break
+    return None
 
 
 # ------------------------------------------------------------------------------ misc

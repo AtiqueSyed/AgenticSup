@@ -37,7 +37,7 @@ class DecomposeQueryNode(BaseNode):
         question = state["question"]
         prompt = load_prompt(self.agent, "decompose_query", question=question)
         try:
-            plan = await self.clients.llm.complete_model(prompt, SubQuestions)
+            plan = await self.clients.llm.complete_model(prompt, SubQuestions, operation=self.name)
             sub_questions = plan.sub_questions
         except LLMResponseError as exc:
             self.log.warning("Decomposition failed, falling back to the raw question: %s", exc)
@@ -94,7 +94,7 @@ class GenerateSqlNode(BaseNode):
             question=state["question"],
         )
         try:
-            plan = await self.clients.llm.complete_model(prompt, SqlPlan)
+            plan = await self.clients.llm.complete_model(prompt, SqlPlan, operation=self.name)
         except LLMResponseError as exc:
             self.log.warning("SQL generation failed: %s", exc)
             return {"validation_error": NO_CONTEXT_ERROR}
@@ -170,7 +170,7 @@ class SynthesizeAnswerNode(BaseNode):
             self.agent, "synthesize_answer", question=state["question"], results_str=json_dumps(results)
         )
         try:
-            answer = await self.clients.llm.complete_text(prompt)
+            answer = await self.clients.llm.complete_text(prompt, operation=self.name)
         except Exception:
             # MOCK FALLBACK preserved from the old node -- any completion failure
             # (not just a schema-validation one; there is no schema here) degrades to
@@ -200,7 +200,7 @@ class RecommendVisualizationsNode(BaseNode):
         sample = truncate(query_results, SAMPLE_ROW_LIMIT)
         prompt = load_prompt(self.agent, "recommend_visualizations", sample_data=json_dumps(sample))
         try:
-            plan = await self.clients.llm.complete_model(prompt, VisualizationSpec)
+            plan = await self.clients.llm.complete_model(prompt, VisualizationSpec, operation=self.name)
         except LLMResponseError as exc:
             self.log.warning("Visualization recommendation failed: %s", exc)
             return {"recommended_visualizations": None}

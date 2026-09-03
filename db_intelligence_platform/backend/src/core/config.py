@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str
     OPENAI_PROJECT_ID: str = ""
     DEFAULT_LLM_MODEL: str
+    # Reasoning models (nemotron-super et al.) return chain-of-thought in a separate
+    # field and pay 10-25s of latency for it. "off" disables it for every call via
+    # the provider's `chat_template_kwargs` switch; LLM_REASONING_OFF_OPERATIONS
+    # carves out exceptions to whichever mode is the default.
+    LLM_REASONING: str = "on"
+    LLM_REASONING_OFF_OPERATIONS: str = ""
 
     # --- Neo4j ---
     NEO4J_URI: str
@@ -86,6 +92,19 @@ class Settings(BaseSettings):
         if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError(f"Unsupported LOG_LEVEL: {value}")
         return level
+
+    @field_validator("LLM_REASONING")
+    @classmethod
+    def _validate_llm_reasoning(cls, value: str) -> str:
+        mode = value.lower()
+        if mode not in {"on", "off"}:
+            raise ValueError(f"LLM_REASONING must be 'on' or 'off', got: {value}")
+        return mode
+
+    @property
+    def reasoning_off_operations(self) -> frozenset[str]:
+        """Operation names to force reasoning off for, regardless of ``LLM_REASONING``."""
+        return frozenset(op.strip() for op in self.LLM_REASONING_OFF_OPERATIONS.split(",") if op.strip())
 
     def entities_index(self) -> str:
         """Elasticsearch index holding entity embeddings."""

@@ -48,7 +48,7 @@ class GenerateSemanticsNode(BaseNode):
         prompt = load_prompt(
             "onboarding", "generate_semantics", schema_summary=json_dumps(_schema_summary(tables))
         )
-        semantics = await self.clients.llm.complete_model(prompt, TableSemantics)
+        semantics = await self.clients.llm.complete_model(prompt, TableSemantics, operation=self.name)
         self.log.info("Semantics generated for %d tables", len(semantics.root))
         return {"status": "generated_semantics", "semantic_descriptions": semantics.root}
 
@@ -68,7 +68,7 @@ class IdentifyEntitiesNode(BaseNode):
             existing_entities_context=json_dumps(existing_entities),
             schema_summary=json_dumps(_schema_summary(tables, state.get("semantic_descriptions", {}))),
         )
-        extraction = await self.clients.llm.complete_model(prompt, EntityExtraction)
+        extraction = await self.clients.llm.complete_model(prompt, EntityExtraction, operation=self.name)
         entities = [e.model_dump() for e in extraction.entities]
         relationships = [r.model_dump() for r in extraction.relationships]
         entities = self._ensure_full_table_coverage(entities, tables)
@@ -127,7 +127,7 @@ class MapEntityColumnsNode(BaseNode):
                 [{"id": e["id"], "mapped_tables": e.get("mapped_tables", [])} for e in entities]
             ),
         )
-        result = await self.clients.llm.complete_model(prompt, EntityKeyMap)
+        result = await self.clients.llm.complete_model(prompt, EntityKeyMap, operation=self.name)
         key_map = {e.id: [k.model_dump() for k in e.entity_keys] for e in result.entities}
         for entity in entities:
             if entity["id"] in key_map:

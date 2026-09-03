@@ -31,3 +31,22 @@ node-v*/
 .env
 .env.*
 !.env.example
+
+# Backups and scratch copies. These are how secrets leak: a *.bak of a file that
+# is itself ignored (registry.json, docker-compose.yml) is NOT covered by the rule
+# for the original, and both have held live credentials.
+*.bak
+*.orig
+*.old
+*~
+
+# Test and lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+

@@ -34,6 +34,13 @@ EXCLUDED_SCHEMAS = frozenset(
 SAMPLE_ROW_LIMIT = 3
 
 
+def _column_samples(name: str, samples: list[dict[str, Any]]) -> list[str]:
+    """Up to ``SAMPLE_ROW_LIMIT`` stringified, non-null values for ``name`` out of the
+    already-fetched sample rows -- case-insensitive, since drivers vary on casing."""
+    values = (row.get(name, row.get(name.upper(), row.get(name.lower()))) for row in samples)
+    return [str(v) for v in values if v is not None][:SAMPLE_ROW_LIMIT]
+
+
 class SchemaExtractor:
     """Introspects an Oracle connection into validated ``TableSchema`` objects."""
 
@@ -52,10 +59,18 @@ class SchemaExtractor:
         return inspector.get_table_names(schema=schema)
 
     def describe_columns(
-        self, inspector: Inspector, table: str, schema: str | None
+        self,
+        inspector: Inspector,
+        table: str,
+        schema: str | None,
+        samples: list[dict[str, Any]] | None = None,
     ) -> list[ColumnSchema]:
         return [
-            ColumnSchema(name=col["name"], type=str(col["type"]))
+            ColumnSchema(
+                name=col["name"],
+                type=str(col["type"]),
+                sample_values=_column_samples(col["name"], samples or []),
+            )
             for col in inspector.get_columns(table, schema=schema)
         ]
 
@@ -106,9 +121,12 @@ class SchemaExtractor:
     def _describe_table(
         self, inspector: Inspector, sync_conn: Connection, table_name: str, schema: str | None
     ) -> dict[str, Any]:
+        # Fetched once and reused for both the table-level sample rows and each
+        # column's own sample_values, so the LLM prompt isn't sent empty "samples".
+        samples = self.sample_rows(sync_conn, table_name, schema)
         return {
             "name": table_name,
-            "columns": self.describe_columns(inspector, table_name, schema),
+            "columns": self.describe_columns(inspector, table_name, schema, samples),
             "foreign_keys": inspector.get_foreign_keys(table_name, schema=schema),
-            "sample_data": self.sample_rows(sync_conn, table_name, schema),
+            "sample_data": samples,
         }

@@ -22,10 +22,23 @@ UNSELECTED_DATABASE = "selected-db-id"
 # database is pinned by id, whether an entity filter is present at all, and which
 # condition keeps a column beyond the "five or fewer" cutoff. Everything else -- the
 # column projection and the RETURN shape -- is identical, so it is built once here.
+# Every column of a matched table, unfiltered.
+#
+# This used to be "WHERE col_count <= 5 OR <condition>", which for any table with more
+# than five columns exposed only the columns representing the one kNN-matched entity.
+# In practice that meant the SQL generator saw a single column: asked "how many
+# complaint cases per bank", it received cases(complaint_subcategory) alone and emitted
+# `SELECT complaint_subcategory AS bank`, because bank_name had been filtered out of its
+# context. Narrowing columns saved a few hundred tokens and cost every answer its
+# correctness -- once a table is judged relevant, the model needs its whole shape.
 _COLUMN_PROJECTION = (
-    "[col IN all_columns WHERE col_count <= 5 OR {condition} | "
-    "{{name: col.name, type: col.type, description: col.description, "
-    "sample_values: col.sample_values, is_entity_key: col.is_entity_key}}] AS columns"
+    # coalesce: only entity-key columns get is_entity_key/sample_values written during
+    # onboarding, so every other column returns null here and fails ColumnSchema
+    # validation. Null means "not a key" / "no samples", so say that in Cypher.
+    "[col IN all_columns | "
+    "{name: col.name, type: coalesce(col.type, 'unknown'), description: col.description, "
+    "sample_values: coalesce(col.sample_values, []), "
+    "is_entity_key: coalesce(col.is_entity_key, false)}] AS columns"
 )
 _RETURN_CLAUSE = (
     "RETURN db.id AS database_id, db.name AS database_name, db.connection_string AS conn_str, "
@@ -41,13 +54,12 @@ _GLOBAL_ENTITY_OPENING = (
     "MATCH (e:Entity) WHERE e.id IN $matched_entities\n"
     "MATCH (db:Database)-[:HAS_TABLE]->(t:Table)-[:MAPS_TO]->(e)\n"
 )
-_ENTITY_COLUMN_CONDITION = "EXISTS((col)-[:REPRESENTS]->(e))"
 
 _ALL_SCHEMAS_CYPHER = (
     "MATCH (db:Database)-[:HAS_TABLE]->(t:Table)\n"
     "OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)\n"
     "WITH db, t, collect(c) AS all_columns, count(c) AS col_count\n"
-    f"WITH db, t, {_COLUMN_PROJECTION.format(condition='col.is_entity_key = true')}\n"
+    f"WITH db, t, {_COLUMN_PROJECTION}\n"
     f"{_RETURN_CLAUSE}"
 )
 
@@ -92,7 +104,7 @@ def _entity_schema_query(database_id: str | None) -> str:
         f"{opening}"
         "OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)\n"
         "WITH db, t, e, collect(c) AS all_columns, count(c) AS col_count\n"
-        f"WITH db, t, {_COLUMN_PROJECTION.format(condition=_ENTITY_COLUMN_CONDITION)}\n"
+        f"WITH db, t, {_COLUMN_PROJECTION}\n"
         f"{_RETURN_CLAUSE}"
     )
 

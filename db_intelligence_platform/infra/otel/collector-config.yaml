@@ -1,0 +1,36 @@
+# OTel Collector config for the local stack.
+#
+# The backend (running on the host) exports OTLP/gRPC to localhost:4317, which
+# docker-compose publishes to this container's receiver below. Traces are
+# forwarded on to Jaeger; metrics are exposed for Prometheus to scrape.
+#
+# Minimal on purpose: no sampling, no attribute processors, no logs pipeline --
+# just batch, then fan out to the two backends the app actually needs.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch: {}
+
+exporters:
+  otlp:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]

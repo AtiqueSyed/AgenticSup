@@ -1,0 +1,19 @@
+# Provisions the two datasources Grafana needs out of the box: Prometheus for
+# the metrics this app emits, Jaeger for trace lookups (e.g. "explore" -> a
+# trace id copied from a Prometheus exemplar or from the app's own logs).
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger
+    access: proxy
+    url: http://jaeger:16686

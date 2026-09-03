@@ -10,6 +10,7 @@ from decimal import Decimal
 
 import pytest
 
+from src.agents.onboarding.schema_extractor import SchemaExtractor
 from src.agents.query.schemas import SubQuestions
 from src.utils.helpers import (
     LLMResponseError,
@@ -69,6 +70,27 @@ def test_parse_llm_json_raises_on_non_json():
 def test_parse_llm_json_raises_when_model_validation_fails():
     with pytest.raises(LLMResponseError):
         parse_llm_json('{"sub_questions": []}', SubQuestions)
+
+
+def test_parse_llm_json_strips_think_block():
+    """Some models (e.g. nemotron's smaller siblings) inline reasoning into `content`
+    instead of a separate `reasoning_content` field."""
+    content = "<think>let me work through this</think>\n" '{"sub_questions": ["q1"]}'
+    model = parse_llm_json(content, SubQuestions)
+    assert model.sub_questions == ["q1"]
+
+
+def test_parse_llm_json_survives_unterminated_think_block():
+    """A truncated reply: the `<think>` never closes, so nothing usable survives --
+    this must still raise `LLMResponseError`, not hang or crash."""
+    with pytest.raises(LLMResponseError):
+        parse_llm_json("<think>still reasoning when the response got cut off", SubQuestions)
+
+
+def test_parse_llm_json_survives_prose_around_json():
+    content = 'Sure, here you go:\n{"sub_questions": ["q1"]}\nLet me know if you need more.'
+    model = parse_llm_json(content, SubQuestions)
+    assert model.sub_questions == ["q1"]
 
 
 # ------------------------------------------------------------------------ load_prompt
@@ -167,3 +189,39 @@ def test_json_dumps_handles_datetime_and_decimal_without_raising():
     assert isinstance(result, str)
     assert "2024-01-01" in result
     assert "19.99" in result
+
+
+# ------------------------------------------------------------------- SchemaExtractor
+
+
+class _FakeInspector:
+    """Just enough of `Inspector.get_columns` for `describe_columns`."""
+
+    def get_columns(self, table, schema=None):
+        return [{"name": "ID", "type": "NUMBER"}, {"name": "NAME", "type": "VARCHAR2"}]
+
+
+def test_describe_columns_populates_sample_values_from_sample_rows():
+    """Regression: `_schema_summary` in `agents/onboarding/nodes.py` reads
+    `column.sample_values` to show the LLM what the data looks like -- it used to be
+    left at its default `[]` for every column, so the LLM was grounded on nothing."""
+    samples = [{"ID": Decimal("1"), "NAME": "Alice"}, {"ID": Decimal("2"), "NAME": None}]
+    columns = SchemaExtractor().describe_columns(_FakeInspector(), "CUSTOMERS", None, samples)
+    assert [c.sample_values for c in columns] == [["1", "2"], ["Alice"]]
+
+
+def test_empty_json_object_is_rejected_not_silently_defaulted():
+    """`{}` validates cleanly against every LenientModel, yielding a model full of empty
+    defaults. That is indistinguishable from a real answer at the call site, so the
+    parser must reject it and let the caller retry."""
+    with pytest.raises(LLMResponseError, match="empty JSON payload"):
+        parse_llm_json("{}", SubQuestions)
+
+    with pytest.raises(LLMResponseError, match="empty JSON payload"):
+        parse_llm_json("[]", SubQuestions)
+
+
+def test_a_populated_reply_still_parses():
+    """The empty-payload guard must not reject legitimate content."""
+    parsed = parse_llm_json('{"sub_questions": ["a", "b"]}', SubQuestions)
+    assert parsed.sub_questions == ["a", "b"]

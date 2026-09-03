@@ -6,11 +6,27 @@ import KnowledgeSidebar from './components/KnowledgeSidebar';
 import Login from './components/Login';
 import ACEOnboarding from './components/ACEOnboarding';
 import MetadataRegistry from './components/MetadataRegistry';
+import { navigate, usePath } from './router';
+import { resolveRoute, adminTabForPath, pathForAdminTab } from './routes';
 import './App.css';
 
+// Session storage throws in a few locked-down browser configurations; a failure here
+// only costs the user a re-login on refresh, so it must never take the app down.
+const readRole = () => {
+  try { return sessionStorage.getItem('userRole'); } catch { return null; }
+};
+const writeRole = (role) => {
+  try {
+    role ? sessionStorage.setItem('userRole', role) : sessionStorage.removeItem('userRole');
+  } catch { /* refresh will simply land back on /login */ }
+};
+
 export default function App() {
-  const [userRole, setUserRole] = useState(null); // 'user' | 'admin' | null
-  const [adminActiveTab, setAdminActiveTab] = useState('onboarding'); // 'onboarding' | 'query'
+  const path = usePath();
+  // Persisted so that a deep link or a refresh on /admin/registry does not bounce to
+  // login every time. This is a UI role switch, not authentication -- there is no
+  // credential check behind it yet, so nothing is being weakened by storing it.
+  const [userRole, setUserRole] = useState(readRole);
   const [activeTab, setActiveTab] = useState('chat');
   const [lang, setLang] = useState('en');
   const [theme, setTheme] = useState('light');
@@ -32,6 +48,19 @@ export default function App() {
   
   // Context query loaded from sidebar history popover
   const [presetQuery, setPresetQuery] = useState('');
+
+  const route = resolveRoute(userRole, path);
+
+  // Redirects are replacements, never pushes: a bounced-off URL must not become a
+  // history entry, or Back would walk the user straight back into the bounce.
+  useEffect(() => {
+    if (route.redirect) navigate(route.redirect, { replace: true });
+  }, [route.redirect]);
+
+  // Sync theme to root body element for global dark/light styling changes
+  useEffect(() => {
+    document.body.className = theme === 'light' ? 'light-theme' : 'dark-theme';
+  }, [theme]);
 
   // Handle loading historical chats from the Sidebar popover
   const handleLoadPastChat = (queryText) => {
@@ -63,20 +92,26 @@ export default function App() {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
-  // Sync theme to root body element for global dark/light styling changes
-  useEffect(() => {
-    document.body.className = theme === 'light' ? 'light-theme' : 'dark-theme';
-  }, [theme]);
+  // Login and logout only move the role; the effect above works out the destination.
+  const handleLogin = (role) => { writeRole(role); setUserRole(role); };
+  const handleLogout = () => { writeRole(null); setUserRole(null); };
 
+  // Derived from the URL rather than held in state, so browser back/forward moves
+  // between admin screens and both admin components keep their original prop API.
+  const adminActiveTab = adminTabForPath(path);
+  const setAdminActiveTab = (tab) => navigate(pathForAdminTab(tab));
 
-  if (userRole === null) {
-    return <Login onLogin={(role) => setUserRole(role)} />;
+  // The redirect effect is mid-flight; rendering the old view here would flash it.
+  if (route.redirect) return null;
+
+  if (route.view === 'login') {
+    return <Login onLogin={handleLogin} />;
   }
 
-  if (userRole === 'admin' && adminActiveTab === 'onboarding') {
+  if (route.view === 'onboarding') {
     return (
       <ACEOnboarding 
-        onLogout={() => setUserRole(null)} 
+        onLogout={handleLogout} 
         adminActiveTab={adminActiveTab}
         setAdminActiveTab={setAdminActiveTab}
         theme={theme}
@@ -85,10 +120,10 @@ export default function App() {
     );
   }
 
-  if (userRole === 'admin' && adminActiveTab === 'registry') {
+  if (route.view === 'registry') {
     return (
       <MetadataRegistry 
-        onLogout={() => setUserRole(null)} 
+        onLogout={handleLogout} 
         adminActiveTab={adminActiveTab}
         setAdminActiveTab={setAdminActiveTab}
         theme={theme}
@@ -130,10 +165,7 @@ export default function App() {
         recentChats={recentChats}
         onDeleteChatSession={handleDeleteChatSession}
         onClearAllChats={() => setRecentChats([])}
-        onLogout={() => {
-          setUserRole(null);
-          setAdminActiveTab('onboarding');
-        }}
+        onLogout={handleLogout}
       />
 
       {/* 2. Main Workspace (Locked exclusively to General Chat Interface) */}

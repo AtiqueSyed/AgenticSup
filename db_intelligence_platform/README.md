@@ -1,54 +1,29 @@
 # Enterprise Agentic Database Intelligence Platform
 
-A production-ready full-stack application that enables enterprises to onboard any structured or unstructured database and query it using natural language.
+Onboard an Oracle database, then query it in natural language. FastAPI + LangGraph
+backend, React frontend, Neo4j knowledge graph, Elasticsearch vector search, NVIDIA
+Nemotron LLMs, OpenTelemetry throughout.
 
-## Architecture
+## Start here
 
-- **Frontend**: React, Vite, Tailwind CSS, ShadCN UI, React Flow (Knowledge Graph), ECharts (Visualizations).
-- **Backend**: FastAPI, SQLAlchemy Async, LangGraph (Agentic Workflows).
-- **LLMs**: AWS Bedrock (OpenAI compatible proxy used).
-- **Infrastructure**: Oracle DB (Target & Registry), Neo4j (Knowledge Graph), Elasticsearch (Vector Search), Hazelcast (Caching).
+**[HANDOVER.md](HANDOVER.md)** — layout, bring-up, configuration, conventions, and the
+things that will bite you. Read it first.
 
-## Workflows
+Then, for the task at hand:
 
-1. **Admin Onboarding (Offline)**: Introspects database schema, generates semantic descriptions, identifies entities/relationships, pushes to Neo4j and Elasticsearch.
-2. **User Query**: Natural language intent parsing, context retrieval from Neo4j/Elasticsearch, optimized SQL generation, secure execution, result synthesis, and dynamic chart recommendation.
+| Doc | For |
+|---|---|
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | running it, and troubleshooting |
+| [docs/TELEMETRY.md](docs/TELEMETRY.md) | traces, spans, metrics |
+| [docs/MODELS.md](docs/MODELS.md) | swapping or tuning the LLM |
+| [backend/API.md](backend/API.md) | the HTTP API |
+| [backend/README.md](backend/README.md) | backend internals and coding standards |
 
-## Setup Instructions
-
-### Environment Setup
-
-1. Configure the `.env` file located at `backend/.env` with your specific credentials:
-   - AWS Bedrock API Keys
-   - Oracle DB Credentials
-   - Neo4j Credentials
-   - Hazelcast Host/Port
-   - Elasticsearch Host/Credentials
-
-### Running with Docker
-
-This project is fully dockerized for easy deployment to your VM environments.
+## Quick start
 
 ```bash
-docker-compose up -d --build
-```
-
-- **Frontend**: Available at `http://localhost:80`
-- **Backend API**: Available at `http://localhost:8000/api/v1`
-- **API Docs**: Available at `http://localhost:8000/docs`
-
-### Running Locally (Development)
-
-**Backend:**
-```bash
-cd backend
-uv sync # Ensure dependencies are installed
-uvicorn app.main:app --reload
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm install
-npm run dev
+# Docker Desktop -> Resources -> Memory = 6 GB first, or containers get OOM-killed.
+cp backend/.env.example backend/.env    # fill in real values
+make infra && make seed && make api     # then, in another shell:
+make smoke && make ui                   # UI at http://localhost:5174
 ```
