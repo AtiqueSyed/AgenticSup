@@ -1,0 +1,18 @@
+{
+  "daksh": [
+    "inspection_reports",
+    "complaints"
+  ],
+  "cms": [
+    "regions",
+    "queuemembers",
+    "queue",
+    "cases"
+  ],
+  "cims": [
+    "fact_ebr_lna_lq",
+    "fact_ebr_lna",
+    "fact_ebr_deposits",
+    "fact_ebr_borrowings_lq"
+  ]
+}
